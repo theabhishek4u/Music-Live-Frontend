@@ -1,10 +1,21 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./prisma";
 
+class UserNotFoundError extends CredentialsSignin {
+  code = "UserNotFound";
+}
+class OAuthAccountError extends CredentialsSignin {
+  code = "OAuthAccount";
+}
+class InvalidPasswordError extends CredentialsSignin {
+  code = "InvalidPassword";
+}
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   adapter: PrismaAdapter(prisma),
   providers: [
     // Dev credentials provider — allows instant login without Google OAuth
@@ -26,19 +37,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         });
 
         if (!user) {
-          throw new Error("UserNotFound");
+          throw new UserNotFoundError();
         }
 
         // If the user registered via Google OAuth and has no password
         if (!user.password) {
-          throw new Error("OAuthAccount");
+          throw new OAuthAccountError();
         }
 
         // Verify the password hash
         const { verifyPassword } = await import("./hash");
         const isValid = verifyPassword(password, user.password);
         if (!isValid) {
-          throw new Error("InvalidPassword");
+          throw new InvalidPasswordError();
         }
 
         return user;
