@@ -488,7 +488,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                           className="w-8 h-8 rounded-full object-cover border border-white/10 hover:border-[#ff6c37] transition-all" 
                         />
                       ) : (
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-extrabold border border-white/10 hover:border-[#ff6c37] transition-all ${member.isHost ? "bg-gradient-to-br from-orange-500 to-red-600" : "bg-zinc-800"}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-extrabold border border-white/10 hover:border-[#ff6c37] transition-all ${member.isHost ? "bg-linear-to-br from-orange-500 to-red-600" : "bg-zinc-800"}`}>
                           {member.userName.charAt(0).toUpperCase()}
                         </div>
                       )}
@@ -531,12 +531,12 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                 onClick={copyInviteCode} 
                 className="relative overflow-hidden group py-2 px-3.5 rounded-xl text-xs font-bold bg-zinc-900/60 border border-white/5 hover:border-[#ff6c37]/30 text-zinc-300 hover:text-white transition-all duration-300 flex items-center gap-1.5 cursor-pointer shadow-lg shadow-black/20"
               >
-                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <div className="absolute inset-0 w-full h-full bg-linear-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="group-hover:rotate-12 transition-transform duration-300"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
                 {copied ? <span className="text-emerald-400 font-bold">Copied!</span> : <span>Copy Link</span>}
               </button>
               <button 
-                className="py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center gap-2 bg-gradient-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300 cursor-pointer border border-[#ff6c37]/25"
+                className="py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center gap-2 bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300 cursor-pointer border border-[#ff6c37]/25"
                 onClick={copyInviteCode}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
@@ -788,7 +788,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                             : "bg-[#121216]/80 border border-white/5 text-zinc-200 rounded-tl-none"
                         }`}
                       >
-                        {msg.text && <p className="break-words">{msg.text}</p>}
+                        {msg.text && <p className="wrap-break-word">{msg.text}</p>}
                         
                         {msg.imageUrl && (
                           <div className="relative rounded-xl overflow-hidden mt-1.5 max-w-[200px] border border-white/5 select-none">
@@ -893,7 +893,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Bottom Vignette Effect */}
-      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[#ff6c37]/15 via-purple-600/5 to-transparent z-0" />
+      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-48 bg-linear-to-t from-[#ff6c37]/15 via-purple-600/5 to-transparent z-0" />
     </div>
   );
 }

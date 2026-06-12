@@ -255,7 +255,7 @@ export default function DashboardPage() {
           {session.user.image ? (
             <img src={session.user.image} alt={userName} className="w-8 h-8 rounded-full border border-white/10" />
           ) : (
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
+            <div className="w-8 h-8 rounded-full bg-linear-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
               {userName.charAt(0).toUpperCase()}
             </div>
           )}
@@ -263,7 +263,7 @@ export default function DashboardPage() {
       </header>
 
       {/* Curated Spotlight Hero Banner */}
-      <section className="mb-8 relative rounded-3xl overflow-hidden bg-gradient-to-r from-[#e34222] via-[#e85233] to-[#ff7d4b] h-72 md:h-80 shadow-2xl flex items-center group select-none">
+      <section className="mb-8 relative rounded-3xl overflow-hidden bg-linear-to-r from-[#e34222] via-[#e85233] to-[#ff7d4b] h-72 md:h-80 shadow-2xl flex items-center group select-none">
         {/* Blended Portrait Background */}
         <div 
           className="absolute right-0 top-0 bottom-0 w-1/2 md:w-2/5 bg-cover bg-center mix-blend-luminosity opacity-85 group-hover:scale-102 transition-transform duration-700 pointer-events-none"
@@ -274,7 +274,7 @@ export default function DashboardPage() {
           }}
         />
 
-        <div className="absolute inset-0 bg-gradient-to-r from-[#e34222] via-[#e85233]/70 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-linear-to-r from-[#e34222] via-[#e85233]/70 to-transparent pointer-events-none" />
 
         <div className="relative z-10 pl-8 md:pl-12 max-w-xl text-left">
           <span className="text-[10px] font-extrabold text-white/70 uppercase tracking-widest block mb-2 font-mono">
@@ -308,9 +308,9 @@ export default function DashboardPage() {
         <button 
           id="create-room-btn" 
           onClick={() => setShowCreate(true)} 
-          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:translate-y-[-1px] transition-all cursor-pointer shadow-lg shadow-black/20"
+          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
         >
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white shadow-lg shadow-orange-500/10 group-hover:scale-105 transition-all">
+          <div className="w-11 h-11 rounded-xl bg-linear-to-br from-orange-500 to-red-600 flex items-center justify-center text-white shadow-lg shadow-orange-500/10 group-hover:scale-105 transition-all">
             <Plus size={20} strokeWidth={2.5} />
           </div>
           <div>
@@ -322,9 +322,9 @@ export default function DashboardPage() {
         <button 
           id="join-room-btn" 
           onClick={() => setShowJoin(true)} 
-          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:translate-y-[-1px] transition-all cursor-pointer shadow-lg shadow-black/20"
+          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
         >
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/10 group-hover:scale-105 transition-all">
+          <div className="w-11 h-11 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/10 group-hover:scale-105 transition-all">
             <UserPlus size={18} strokeWidth={2.5} />
           </div>
           <div>
@@ -336,9 +336,9 @@ export default function DashboardPage() {
         <button 
           id="solo-mode-btn" 
           onClick={() => handleCreateRoom("Solo Session 🎧", "SOLO")} 
-          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:translate-y-[-1px] transition-all cursor-pointer shadow-lg shadow-black/20"
+          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
         >
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/10 group-hover:scale-105 transition-all">
+          <div className="w-11 h-11 rounded-xl bg-linear-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/10 group-hover:scale-105 transition-all">
             <Headset size={18} strokeWidth={2.5} />
           </div>
           <div>
