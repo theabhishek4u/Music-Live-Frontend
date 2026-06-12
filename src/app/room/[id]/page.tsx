@@ -8,7 +8,22 @@ import { usePlayerStore, type Track } from "@/stores/playerStore";
 import { useRoomStore } from "@/stores/roomStore";
 import { connectSocket, disconnectSocket, getSocket } from "@/lib/socket";
 import { useWebRTC } from "@/hooks/useWebRTC";
-import { Play, Pause, FastForward, Rewind, Copy, Check } from "lucide-react";
+import { 
+  Play, 
+  Pause, 
+  FastForward, 
+  Rewind, 
+  Copy, 
+  Check, 
+  Paperclip, 
+  Send, 
+  Smile, 
+  Info, 
+  MoreVertical, 
+  Mic, 
+  MicOff, 
+  Headphones 
+} from "lucide-react";
 
 const demoTracks: Track[] = [
   { id: "track_1", title: "SoundHelix Song 1", artist: "T. Schürger", duration: 372, thumbnail: "https://picsum.photos/seed/track1/300/300", audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
@@ -30,6 +45,17 @@ function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderImage: string | null;
+  text?: string;
+  imageUrl?: string;
+  emoji?: string;
+  timestamp: number;
 }
 
 /* ===== ROOM PAGE ===== */
@@ -54,6 +80,16 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   const [inviteCode] = useState(() => Math.random().toString(36).slice(2, 8));
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Chat/Messaging State
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const [chatInput, setChatInput] = useState("");
+  const [isTypingState, setIsTypingState] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const chatViewportRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [showEmojiRow, setShowEmojiRow] = useState(false);
+
   // Initialize WebRTC
   useWebRTC(roomId, session?.user?.id || "");
 
@@ -69,7 +105,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     }
   }, []);
 
-  // Set up room state
+  // Set up room state & socket listeners
   useEffect(() => {
     if (!session?.user || !roomId) return;
 
@@ -128,6 +164,28 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       room.setSpeaking(data.userId, data.isSpeaking);
     });
 
+    // Real-time Chat Sockets
+    socket.on("chat:message", (message: ChatMessage) => {
+      setChatMessages((prev) => [...prev, message]);
+      setTimeout(() => {
+        if (chatViewportRef.current) {
+          chatViewportRef.current.scrollTop = chatViewportRef.current.scrollHeight;
+        }
+      }, 50);
+    });
+
+    socket.on("chat:typing", (data: { userId: string; userName: string; isTyping: boolean }) => {
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        if (data.isTyping && data.userId !== userId) {
+          next[data.userId] = data.userName;
+        } else {
+          delete next[data.userId];
+        }
+        return next;
+      });
+    });
+
     // Sync events (for guests)
     socket.on("music-state-update", (state) => {
       if (!isHostParam) {
@@ -169,6 +227,8 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       socket.off("user-left");
       socket.off("speaking");
       socket.off("music-state-update");
+      socket.off("chat:message");
+      socket.off("chat:typing");
       socket.off("disconnect");
       disconnectSocket();
       room.leaveRoom();
@@ -194,7 +254,6 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
-    // To prevent infinite update loops, only update store position if playing
     if (player.isPlaying) {
       player.setPosition(audioRef.current.currentTime);
     }
@@ -292,6 +351,90 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     }
   };
 
+  // Real-time Chat functions
+  const handleSendMessage = (text?: string, imageUrl?: string, emoji?: string) => {
+    if (!session?.user || !roomId) return;
+    if (!text && !imageUrl && !emoji) return;
+
+    const message: ChatMessage = {
+      id: Math.random().toString(36).slice(2, 9),
+      senderId: session.user.id || session.user.email || "user",
+      senderName: session.user.name || "User",
+      senderImage: session.user.image || null,
+      text,
+      imageUrl,
+      emoji,
+      timestamp: Date.now()
+    };
+
+    const socket = getSocket();
+    if (socket) {
+      socket.emit("chat:message", { roomId, message });
+    }
+
+    handleStopTyping();
+    setChatInput("");
+    setShowEmojiRow(false);
+  };
+
+  const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setChatInput(e.target.value);
+    if (!session?.user || !roomId) return;
+    
+    const socket = getSocket();
+    if (!socket) return;
+
+    const userId = session.user.id || session.user.email || "user";
+    const userName = session.user.name || "User";
+
+    if (!isTypingState) {
+      setIsTypingState(true);
+      socket.emit("chat:typing", { roomId, userId, userName, isTyping: true });
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      handleStopTyping();
+    }, 2000);
+  };
+
+  const handleStopTyping = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (isTypingState && session?.user && roomId) {
+      setIsTypingState(false);
+      const socket = getSocket();
+      if (socket) {
+        const userId = session.user.id || session.user.email || "user";
+        const userName = session.user.name || "User";
+        socket.emit("chat:typing", { roomId, userId, userName, isTyping: false });
+      }
+    }
+  };
+
+  const handleAttachPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Image size must be less than 2MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64Data = reader.result as string;
+      handleSendMessage(undefined, base64Data);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const currentTrack = player.currentTrack || demoTracks[0];
   const effectiveVolume = player.isMuted ? 0 : player.volume;
 
@@ -309,7 +452,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     : searchResultTracks;
 
   return (
-    <div className="h-screen flex flex-col bg-surface-950 overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#070709] text-zinc-100 font-sans overflow-hidden relative">
       {/* Top Bar */}
       <header className="glass border-b border-white/5 px-6 py-4 flex items-center justify-between z-30 shrink-0">
         <div className="flex items-center gap-4">
@@ -317,26 +460,89 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
           </Link>
           <div>
-            <h1 className="font-semibold text-lg text-white font-(family-name:--font-outfit) flex items-center gap-2">
+            <h1 className="font-semibold text-lg text-white font-display flex items-center gap-2 tracking-tight">
               {roomName}
-              <span className="text-[10px] px-2 py-0.5 rounded-md bg-primary-500/10 text-primary-400 border border-primary-500/10 font-bold uppercase">{roomType}</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#ff6c37]/15 text-[#ff6c37] border border-[#ff6c37]/15 font-bold uppercase">{roomType}</span>
               {room.isHost && <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/10 font-bold">HOST</span>}
             </h1>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-6 select-none">
+          {/* Active Participants Avatars in Top Bar */}
           {roomType !== "SOLO" && (
-            <>
-              <button id="copy-invite-btn" onClick={copyInviteCode} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
-                {copied ? <span className="text-green-400 font-medium">Copied!</span> : <span>Copy Link</span>}
+            <div className="flex items-center gap-2">
+              {[0, 1].map((index) => {
+                const member = members[index];
+                if (member) {
+                  return (
+                    <div 
+                      key={member.userId} 
+                      className="relative group cursor-pointer"
+                      title={member.userName}
+                    >
+                      {member.userImage ? (
+                        <img 
+                          src={member.userImage} 
+                          alt={member.userName} 
+                          className="w-8 h-8 rounded-full object-cover border border-white/10 hover:border-[#ff6c37] transition-all" 
+                        />
+                      ) : (
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-extrabold border border-white/10 hover:border-[#ff6c37] transition-all ${member.isHost ? "bg-gradient-to-br from-orange-500 to-red-600" : "bg-zinc-800"}`}>
+                          {member.userName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      {/* Speaks/Mute indicators */}
+                      {member.isSpeaking && !member.isMuted && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border border-black animate-pulse" />
+                      )}
+                      {member.isMuted && (
+                        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-black flex items-center justify-center border border-white/10">
+                          <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" className="text-red-400"><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></svg>
+                        </div>
+                      )}
+                      
+                      {/* Elegant hover tooltip */}
+                      <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-zinc-950 text-white text-[10px] font-bold px-2 py-1 rounded border border-white/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl z-50">
+                        {member.userName} {member.isHost ? "(Host)" : ""}
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <button 
+                      key={`empty-${index}`}
+                      onClick={copyInviteCode}
+                      className="w-8 h-8 rounded-full border border-dashed border-white/20 hover:border-[#ff6c37]/50 hover:bg-[#ff6c37]/5 flex items-center justify-center text-zinc-500 hover:text-[#ff6c37] transition-all cursor-pointer"
+                      title="Invite Friend"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                    </button>
+                  );
+                }
+              })}
+            </div>
+          )}
+
+          {roomType !== "SOLO" && (
+            <div className="flex items-center gap-2.5">
+              <button 
+                id="copy-invite-btn" 
+                onClick={copyInviteCode} 
+                className="relative overflow-hidden group py-2 px-3.5 rounded-xl text-xs font-bold bg-zinc-900/60 border border-white/5 hover:border-[#ff6c37]/30 text-zinc-300 hover:text-white transition-all duration-300 flex items-center gap-1.5 cursor-pointer shadow-lg shadow-black/20"
+              >
+                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="group-hover:rotate-12 transition-transform duration-300"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                {copied ? <span className="text-emerald-400 font-bold">Copied!</span> : <span>Copy Link</span>}
               </button>
-              <button className="btn-primary py-2 px-4 text-sm flex items-center gap-2" onClick={copyInviteCode}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
+              <button 
+                className="py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center gap-2 bg-gradient-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300 cursor-pointer border border-[#ff6c37]/25"
+                onClick={copyInviteCode}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
                 Invite
               </button>
-            </>
+            </div>
           )}
         </div>
       </header>
@@ -353,297 +559,341 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           />
         )}
 
-        {/* Left Side: Participants (Hide in SOLO mode) */}
-        {roomType !== "SOLO" && (
-          <aside className="w-72 border-r border-white/5 glass flex flex-col shrink-0 z-20">
-            <div className="p-5 border-b border-white/5">
-              <h2 className="text-sm font-bold font-(family-name:--font-outfit) text-white uppercase tracking-wider flex items-center justify-between">
-                Participants
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-green-500/10 border border-green-500/20 text-[10px] text-green-400 normal-case">
-                  <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                  {members.length}
-                </div>
-              </h2>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {members.map((member) => (
-                <div key={member.userId} className="flex items-center gap-3 p-3 rounded-xl bg-surface-800/30 border border-white/5 hover:bg-surface-800/80 transition-colors">
-                  <div className="relative">
-                    {member.userImage ? (
-                      <img src={member.userImage} alt={member.userName} className="w-10 h-10 rounded-full object-cover" />
-                    ) : (
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-lg ${member.isHost ? "bg-linear-to-br from-primary-600 to-primary-400" : "bg-linear-to-br from-surface-600 to-surface-500"}`}>
-                        {member.userName.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    {member.isSpeaking && !member.isMuted && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-green-500 border-2 border-surface-900 animate-[pulse-glow_2s_ease-in-out_infinite]" />
-                    )}
-                    {member.isMuted && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-900">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-red-400"><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12" /><path d="M17 16.95A7 7 0 0 1 5 12v-2" /></svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-white truncate flex items-center gap-2">
-                      {member.userName}
-                      {member.isHost && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">HOST</span>}
-                    </p>
-                    <p className="text-xs text-zinc-500 flex items-center gap-1">
-                      {room.isConnected ? <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> : <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />}
-                      {member.isMuted ? "Muted" : "Listening"}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </aside>
-        )}
+
 
         {/* Center: Music Player */}
-        <div className="flex-1 flex flex-col relative z-10">
-          <div className="absolute inset-0 opacity-20 blur-[150px]" style={{ background: "radial-gradient(circle at center, rgba(139,92,246,0.5), transparent 70%)" }} />
+        <div className="flex-1 flex flex-col relative z-10 select-none">
+          <div className="absolute inset-0 opacity-15 blur-[150px] pointer-events-none" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.4), transparent 75%)" }} />
           
-          <div className="flex-1 flex flex-col items-center justify-center p-8 relative z-20">
-            {/* Album Art */}
-            <div className={`relative mb-8 transition-transform duration-500 ${player.isPlaying ? "scale-105" : "scale-100"}`}>
-              <div className={`absolute -inset-4 bg-primary-500/20 rounded-full blur-3xl opacity-0 transition-opacity duration-1000 ${player.isPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
-              <div className={`w-64 h-64 md:w-80 md:h-80 lg:w-96 lg:h-96 rounded-3xl overflow-hidden shadow-2xl transition-all duration-700 ${player.isPlaying ? "shadow-primary-500/40 glow-primary" : "shadow-black/50"}`}>
-                <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-full h-full object-cover" />
+          <div className="flex-1 flex flex-col items-center justify-center py-4 px-6 relative z-20 pb-24">
+            {/* Rotating Vinyl Record Cover */}
+            <div className={`relative mb-4 transition-all duration-700 ${player.isPlaying ? "scale-105" : "scale-100"}`}>
+              {/* Glow backdrop */}
+              <div className={`absolute -inset-8 bg-orange-500/5 rounded-full blur-3xl opacity-0 transition-opacity duration-1000 ${player.isPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
+              
+              {/* Rotating Vinyl Outer Disk */}
+              <div className={`w-48 h-48 md:w-64 md:h-64 lg:w-72 lg:h-72 rounded-full bg-zinc-950 border-[6px] border-zinc-900 shadow-2xl relative flex items-center justify-center transition-transform ${player.isPlaying ? "animate-spin-slow shadow-orange-500/5" : ""}`}>
+                {/* Vinyl Grooves (subtle concentric circles) */}
+                <div className="absolute inset-2 rounded-full border border-white/5 opacity-40 pointer-events-none" />
+                <div className="absolute inset-6 rounded-full border border-white/5 opacity-30 pointer-events-none" />
+                <div className="absolute inset-10 rounded-full border border-white/5 opacity-25 pointer-events-none" />
+                <div className="absolute inset-16 rounded-full border border-white/5 opacity-15 pointer-events-none" />
+                <div className="absolute inset-24 rounded-full border border-white/5 opacity-10 pointer-events-none" />
+                
+                {/* Center Album Art */}
+                <div className="w-24 h-24 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-full overflow-hidden border-4 border-zinc-950 relative z-10 shrink-0 select-none">
+                  <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-full h-full object-cover pointer-events-none" />
+                </div>
+                
+                {/* Vinyl Spindle Center Hole */}
+                <div className="w-4 h-4 rounded-full bg-zinc-950 border border-white/20 absolute z-20 shadow-inner" />
               </div>
             </div>
 
             {/* Track Info */}
-            <div className="text-center mb-8 max-w-md w-full">
-              <h2 className="text-3xl font-bold text-white font-(family-name:--font-outfit) mb-2 truncate">{currentTrack.title}</h2>
-              <p className="text-lg text-primary-400 truncate">{currentTrack.artist}</p>
+            <div className="text-center mb-4 max-w-md w-full">
+              <h2 className="text-2xl font-extrabold text-white font-display mb-1 tracking-tight truncate">{currentTrack.title}</h2>
+              <p className="text-sm text-[#ff6c37] font-semibold tracking-wide truncate">{currentTrack.artist}</p>
+
+              {/* Animated Equalizer Visualizer */}
+              {player.isPlaying && (
+                <div className="flex items-center justify-center gap-[3px] h-6 mt-4 opacity-80 select-none">
+                  <div className="eq-bar" />
+                  <div className="eq-bar" style={{ animationDelay: "0.15s" }} />
+                  <div className="eq-bar" style={{ animationDelay: "0.3s" }} />
+                  <div className="eq-bar" style={{ animationDelay: "0.45s" }} />
+                  <div className="eq-bar" style={{ animationDelay: "0.6s" }} />
+                </div>
+              )}
             </div>
 
             {/* Seek Bar */}
-            <div className="w-full max-w-2xl mb-8 group">
+            <div className="w-full max-w-lg mb-4 group px-4">
               <input
                 id="seek-bar"
                 type="range"
                 min={0}
-                max={currentTrack.duration}
+                max={currentTrack.duration || 100}
                 value={player.position}
                 onChange={(e) => handleSeek(Number(e.target.value))}
-                className="seek-bar"
+                className="seek-bar animate-fade-in"
                 style={{
-                  background: `linear-gradient(to right, #8b5cf6 0%, #06b6d4 ${(player.position / currentTrack.duration) * 100}%, rgba(255,255,255,0.1) ${(player.position / currentTrack.duration) * 100}%, rgba(255,255,255,0.1) 100%)`,
+                  background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.08) ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.08) 100%)`,
                 }}
               />
-              <div className="flex justify-between mt-2">
-                <span className="text-xs font-medium text-zinc-400 tracking-wider">{formatTime(player.position)}</span>
-                <span className="text-xs font-medium text-zinc-400 tracking-wider">{formatTime(currentTrack.duration)}</span>
+              <div className="flex justify-between mt-2 text-[10px] text-zinc-500 font-bold font-mono tracking-wider">
+                <span>{formatTime(player.position)}</span>
+                <span>{formatTime(currentTrack.duration)}</span>
               </div>
             </div>
 
-            {/* Player Controls */}
+            {/* Player controls */}
             <div className="flex items-center justify-center gap-8">
-              <button id="shuffle-btn" onClick={() => player.toggleShuffle()} className={`transition-all hover:scale-110 ${player.isShuffle ? "text-accent-500 glow-accent" : "text-zinc-500 hover:text-white"}`}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg>
+              <button id="shuffle-btn" onClick={() => player.toggleShuffle()} className={`transition-all hover:scale-110 p-1.5 cursor-pointer ${player.isShuffle ? "text-[#ff6c37]" : "text-zinc-500 hover:text-white"}`}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg>
               </button>
-              <button id="prev-btn" onClick={handlePrev} className="text-white hover:text-primary-300 hover:scale-110 transition-all">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20L9 12l10-8v16zM5 19V5h2v14H5z" /></svg>
+              <button id="prev-btn" onClick={handlePrev} className="text-zinc-400 hover:text-white hover:scale-110 active:scale-95 transition-all p-1.5 cursor-pointer">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20L9 12l10-8v16zM5 19V5h2v14H5z" /></svg>
               </button>
-              <button id="play-pause-btn" onClick={handlePlayPause} className="w-20 h-20 rounded-full bg-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-white/10 glow-primary">
+              
+              <button 
+                id="play-pause-btn" 
+                onClick={handlePlayPause} 
+                className="w-16 h-16 rounded-full bg-[#ff6c37] hover:bg-[#ff571e] text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-orange-500/20 cursor-pointer shrink-0"
+              >
                 {player.isPlaying ? (
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="#09090b"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+                  <Pause size={24} fill="white" strokeWidth={0} />
                 ) : (
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="#09090b" className="ml-1"><path d="M5 3l14 9-14 9V3z" /></svg>
+                  <Play size={24} fill="white" className="ml-0.5" strokeWidth={0} />
                 )}
               </button>
-              <button id="next-btn" onClick={handleNext} className="text-white hover:text-primary-300 hover:scale-110 transition-all">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8-10 8V4zM17 5h2v14h-2V5z" /></svg>
+
+              <button id="next-btn" onClick={handleNext} className="text-zinc-400 hover:text-white hover:scale-110 active:scale-95 transition-all p-1.5 cursor-pointer">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8-10 8V4zM17 5h2v14h-2V5z" /></svg>
               </button>
-              <button id="repeat-btn" onClick={() => player.toggleRepeat()} className={`transition-all hover:scale-110 ${player.isRepeat ? "text-accent-500 glow-accent" : "text-zinc-500 hover:text-white"}`}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>
+              <button id="repeat-btn" onClick={() => player.toggleRepeat()} className={`transition-all hover:scale-110 p-1.5 cursor-pointer ${player.isRepeat ? "text-[#ff6c37]" : "text-zinc-500 hover:text-white"}`}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>
               </button>
             </div>
           </div>
+
+          {/* Bottom Floating Voice Controls */}
+          {roomType !== "SOLO" && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
+              <div className="flex items-center gap-2.5 bg-zinc-950/85 backdrop-blur-md border border-white/5 p-1.5 rounded-2xl shadow-2xl">
+                <button
+                  id="mic-toggle-btn"
+                  onClick={() => {
+                    if (!room.voiceConnected) room.setVoiceConnected(true);
+                    room.toggleMic();
+                  }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    room.micMuted 
+                      ? "bg-red-500/10 text-red-400 border border-red-500/15" 
+                      : "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20"
+                  }`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    {room.micMuted ? (
+                      <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
+                    ) : (
+                      <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></>
+                    )}
+                  </svg>
+                  {room.micMuted ? "Muted" : "Mic On"}
+                </button>
+
+                <button
+                  id="deafen-toggle-btn"
+                  onClick={() => room.toggleDeafen()}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    room.isDeafened 
+                      ? "bg-red-500/10 text-red-400 border border-red-500/15 animate-pulse" 
+                      : "bg-zinc-800 text-zinc-300 border border-white/5 hover:bg-zinc-700"
+                  }`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    {room.isDeafened ? (
+                       <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
+                    ) : (
+                       <><path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" /></>
+                    )}
+                  </svg>
+                  {room.isDeafened ? "Deafened" : "Deafen"}
+                </button>
+
+                <button
+                  id="voice-toggle-btn"
+                  onClick={() => room.setVoiceConnected(!room.voiceConnected)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    room.voiceConnected 
+                      ? "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20" 
+                      : "bg-zinc-800 text-zinc-400 border border-white/5 hover:bg-zinc-700 hover:text-white"
+                  }`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  </svg>
+                  {room.voiceConnected ? "Connected" : "Join Voice"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Right Side: Chat & Activity (Hide in SOLO mode) */}
+        {/* Right Side: Dynamic Real-time Chat */}
         {roomType !== "SOLO" && (
-          <aside className="w-80 border-l border-white/5 glass flex flex-col shrink-0 z-20">
-            <div className="p-5 border-b border-white/5">
-              <h2 className="text-sm font-bold font-(family-name:--font-outfit) text-white uppercase tracking-wider">Room Activity</h2>
+          <aside className="w-80 border-l border-white/5 bg-zinc-950/60 backdrop-blur-md flex flex-col shrink-0 z-20 h-full">
+            {/* Chat Header */}
+            <div className="p-5 border-b border-white/5 flex items-center justify-between shrink-0 select-none">
+              <div>
+                <h2 className="text-sm font-bold font-display text-white uppercase tracking-wider">Room Chat</h2>
+                <p className="text-[10px] text-zinc-500 mt-0.5 font-medium">Messages are synchronized</p>
+              </div>
+              <div className="flex items-center gap-1.5 bg-[#ff6c37]/10 px-2 py-0.5 rounded-md border border-[#ff6c37]/10 text-[9px] font-bold text-[#ff6c37] uppercase">
+                <span className="w-1.5 h-1.5 bg-[#ff6c37] rounded-full animate-pulse" />
+                Live
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              <div className="text-center p-6 bg-primary-500/10 rounded-2xl border border-primary-500/20">
-                <div className="w-12 h-12 bg-primary-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary-400"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+
+            {/* Message Viewport */}
+            <div 
+              ref={chatViewportRef}
+              className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide flex flex-col"
+            >
+              {chatMessages.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 select-none">
+                  <div className="w-12 h-12 rounded-full bg-zinc-950 flex items-center justify-center text-zinc-500 mb-3 border border-white/5">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-bold text-white">No messages yet</p>
+                  <p className="text-[11px] text-zinc-500 mt-1 max-w-[200px] leading-relaxed">Send text, emojis, or upload a photo to start chatting!</p>
                 </div>
-                <h3 className="text-white font-semibold mb-1">Voice Participants</h3>
-                <p className="text-xs text-zinc-400 leading-relaxed mb-4">Users in this room will appear below.</p>
-                
-                <div className="flex flex-col gap-3">
-                  {members.map(member => (
-                    <div key={member.userId} className={`flex items-center gap-3 p-2 rounded-xl transition-all ${member.isSpeaking ? 'bg-primary-500/20 shadow-[0_0_15px_rgba(124,77,255,0.3)]' : 'bg-surface-800/50'}`}>
-                      <div className={`w-8 h-8 rounded-full bg-zinc-700 shrink-0 flex items-center justify-center overflow-hidden ${member.isSpeaking ? 'ring-2 ring-primary-500 glow-primary' : ''}`}>
-                        {member.userImage ? (
-                          <img src={member.userImage} alt={member.userName} className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-xs font-bold text-white">{member.userName.charAt(0)}</span>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isMe = msg.senderId === (session?.user?.id || session?.user?.email || "user");
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col max-w-[85%] ${
+                        isMe ? "self-end items-end" : "self-start items-start"
+                      }`}
+                    >
+                      {/* Sender Info */}
+                      <div className="flex items-center gap-1.5 mb-1.5 select-none">
+                        {!isMe && (
+                          <>
+                            {msg.senderImage ? (
+                              <img src={msg.senderImage} className="w-4 h-4 rounded-full object-cover" alt="" />
+                            ) : (
+                              <div className="w-4 h-4 rounded-full bg-[#ff6c37] flex items-center justify-center text-white text-[9px] font-bold">
+                                {msg.senderName.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <span className="text-[10px] font-bold text-zinc-400">{msg.senderName}</span>
+                          </>
                         )}
+                        <span className="text-[9px] text-zinc-600 font-bold font-mono">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
-                      <div className="flex-1 text-left">
-                        <p className="text-sm font-medium text-white line-clamp-1">{member.userName} {member.isHost && <span className="text-[10px] text-amber-400 ml-1">HOST</span>}</p>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-2">
-                        {member.userId !== session?.user?.id && member.userId !== session?.user?.email && member.userId !== "self" && (
-                          <button onClick={() => reportUser(member.userId, member.userName)} className="text-zinc-500 hover:text-red-400 transition-colors" title="Report User">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
-                          </button>
+
+                      {/* Bubble */}
+                      <div
+                        className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-lg ${
+                          isMe
+                            ? "bg-[#ff6c37]/15 border border-[#ff6c37]/25 text-white rounded-tr-none"
+                            : "bg-[#121216]/80 border border-white/5 text-zinc-200 rounded-tl-none"
+                        }`}
+                      >
+                        {msg.text && <p className="break-words">{msg.text}</p>}
+                        
+                        {msg.imageUrl && (
+                          <div className="relative rounded-xl overflow-hidden mt-1.5 max-w-[200px] border border-white/5 select-none">
+                            <img
+                              src={msg.imageUrl}
+                              className="w-full h-full object-cover max-h-[140px] rounded"
+                              alt="attached media"
+                            />
+                          </div>
                         )}
-                        {member.isMuted ? (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></svg>
-                        ) : member.isSpeaking ? (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00C2FF" strokeWidth="2" className="animate-pulse"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>
-                        ) : null}
+
+                        {msg.emoji && (
+                          <span className="text-3xl block filter drop-shadow select-none">{msg.emoji}</span>
+                        )}
                       </div>
                     </div>
+                  );
+                })
+              )}
+              {/* Messages container bottom */}
+            </div>
+
+            {/* Typing Indicator Status */}
+            {Object.keys(typingUsers).length > 0 && (
+              <div className="px-5 py-1.5 bg-[#070709] border-t border-white/3 text-[10px] text-zinc-500 font-bold italic flex items-center gap-1.5 shrink-0 select-none animate-pulse">
+                <span className="flex gap-0.5">
+                  <span className="w-1 h-1 bg-[#ff6c37] rounded-full animate-bounce" />
+                  <span className="w-1 h-1 bg-[#ff6c37] rounded-full animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-1 h-1 bg-[#ff6c37] rounded-full animate-bounce [animation-delay:0.4s]" />
+                </span>
+                <span>
+                  {Object.values(typingUsers).join(", ")} {Object.keys(typingUsers).length === 1 ? "is" : "are"}{" "}
+                  typing...
+                </span>
+              </div>
+            )}
+
+            {/* Input Form Footer */}
+            <div className="p-4 border-t border-white/5 bg-black/40 backdrop-blur-md shrink-0 relative">
+              {/* Emojis row */}
+              {showEmojiRow && (
+                <div className="absolute bottom-16 left-3 right-3 bg-[#121216] border border-white/10 p-2.5 rounded-2xl flex items-center justify-between shadow-2xl z-40 animate-slide-up select-none">
+                  {["👍", "🔥", "❤️", "😂", "🎉", "🎵", "✨", "🙌"].map((em) => (
+                    <button
+                      key={em}
+                      onClick={() => handleSendMessage(undefined, undefined, em)}
+                      className="text-xl hover:scale-125 transition-transform p-1 cursor-pointer"
+                    >
+                      {em}
+                    </button>
                   ))}
                 </div>
-              </div>
+              )}
 
-              <div className="relative pl-4 border-l-2 border-white/10 pb-4 pt-2">
-                <div className="absolute left-[-5px] top-3 w-2 h-2 rounded-full bg-green-500" />
-                <p className="text-sm text-white"><span className="font-semibold text-primary-400">You</span> joined the room.</p>
-                <p className="text-xs text-zinc-500 mt-0.5">Just now</p>
+              {/* Text Form */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleAttachPhoto}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-xl transition-all cursor-pointer shrink-0"
+                  title="Attach Photo"
+                >
+                  <Paperclip size={16} />
+                </button>
+
+                <button
+                  onClick={() => setShowEmojiRow(!showEmojiRow)}
+                  className={`p-2 rounded-xl transition-all cursor-pointer shrink-0 ${
+                    showEmojiRow ? "text-[#ff6c37] bg-[#ff6c37]/10" : "text-zinc-500 hover:text-white hover:bg-white/5"
+                  }`}
+                  title="Insert Emoji"
+                >
+                  <Smile size={16} />
+                </button>
+
+                <input
+                  type="text"
+                  placeholder="Type a message..."
+                  value={chatInput}
+                  onChange={handleTyping}
+                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage(chatInput)}
+                  className="flex-1 bg-zinc-900 border border-white/5 px-3 py-2 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-[#ff6c37]/40 focus:ring-1 focus:ring-[#ff6c37]/10 transition-all font-medium"
+                />
+
+                <button
+                  onClick={() => handleSendMessage(chatInput)}
+                  className="p-2 bg-[#ff6c37] hover:bg-[#ff571e] text-white rounded-xl transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/10"
+                  title="Send Message"
+                >
+                  <Send size={12} fill="white" />
+                </button>
               </div>
-              {members.length > 1 && (
-                <div className="relative pl-4 border-l-2 border-white/10 pb-4 pt-2">
-                  <div className="absolute left-[-5px] top-3 w-2 h-2 rounded-full bg-accent-500" />
-                  <p className="text-sm text-white"><span className="font-semibold text-accent-400">Friend</span> joined the room.</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">1 min ago</p>
-                </div>
-              )}
-              {player.isPlaying && (
-                <div className="relative pl-4 border-l-2 border-white/10 pb-4 pt-2">
-                  <div className="absolute left-[-5px] top-3 w-2 h-2 rounded-full bg-primary-500" />
-                  <p className="text-sm text-white"><span className="font-semibold text-primary-400">Host</span> played a track.</p>
-                  <p className="text-xs text-zinc-500 mt-0.5">Now</p>
-                </div>
-              )}
             </div>
           </aside>
         )}
       </div>
 
-      {/* Bottom Bar: Voice Controls & Player */}
-      <footer className="glass border-t border-white/5 px-6 py-4 flex items-center justify-between z-30 shrink-0">
-        {/* Left: Volume */}
-        <div className="flex items-center gap-3 w-1/3 max-w-xs">
-          <button onClick={() => player.toggleMute()} className="text-zinc-400 hover:text-white transition-colors">
-            {player.isMuted || player.volume === 0 ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></svg>
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
-            )}
-          </button>
-          <input
-            id="volume-bar"
-            type="range"
-            min={0}
-            max={100}
-            value={effectiveVolume}
-            onChange={(e) => player.setVolume(Number(e.target.value))}
-            className="seek-bar flex-1"
-            style={{
-              background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${effectiveVolume}%, rgba(255,255,255,0.1) ${effectiveVolume}%, rgba(255,255,255,0.1) 100%)`,
-            }}
-          />
-        </div>
-
-        {/* Center: Music Controller */}
-        <div className="flex flex-col items-center justify-center w-1/3 min-w-[300px]">
-          <div className="flex items-center gap-6 mb-2 text-zinc-400">
-            {room.isHost && (
-              <button onClick={handlePrev} className="hover:text-white transition-colors">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/></svg>
-              </button>
-            )}
-            <button onClick={room.isHost ? handlePlayPause : undefined} className={`w-10 h-10 rounded-full flex items-center justify-center transition-transform ${room.isHost ? 'bg-white text-surface-950 hover:scale-105' : 'bg-white/10 text-white opacity-50 cursor-not-allowed'}`}>
-              {player.isPlaying ? <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg> : <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="ml-1"><polygon points="5 3 19 12 5 21 5 3" /></svg>}
-            </button>
-            {room.isHost && (
-              <button onClick={handleNext} className="hover:text-white transition-colors">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-3 w-full text-xs text-zinc-500 font-medium">
-            <span className="w-10 text-right">{formatTime(player.position)}</span>
-            <input
-              type="range"
-              min={0}
-              max={currentTrack.duration || 100}
-              value={player.position}
-              onChange={(e) => room.isHost ? handleSeek(Number(e.target.value)) : undefined}
-              className={`seek-bar flex-1 ${!room.isHost ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={!room.isHost}
-              style={{
-                background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.1) ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.1) 100%)`,
-              }}
-            />
-            <span className="w-10">{formatTime(currentTrack.duration || 0)}</span>
-          </div>
-        </div>
-
-        {/* Right: Voice Controls (Hide in SOLO mode) */}
-        <div className="flex items-center justify-end gap-3 w-1/3">
-          {roomType !== "SOLO" && (
-            <div className="flex items-center gap-2 bg-surface-800/50 p-1.5 rounded-2xl border border-white/5">
-              <button
-                id="mic-toggle-btn"
-                onClick={() => {
-                  if (!room.voiceConnected) room.setVoiceConnected(true);
-                  room.toggleMic();
-                }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${room.micMuted ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 glow-red" : "bg-surface-700 text-white hover:bg-surface-600"}`}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  {room.micMuted ? (
-                    <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
-                  ) : (
-                    <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></>
-                  )}
-                </svg>
-                {room.micMuted ? "Muted" : "Mic On"}
-              </button>
-
-              <button
-                id="deafen-toggle-btn"
-                onClick={() => room.toggleDeafen()}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${room.isDeafened ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 glow-red" : "bg-surface-700 text-white hover:bg-surface-600"}`}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  {room.isDeafened ? (
-                     <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
-                  ) : (
-                     <><path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" /></>
-                  )}
-                </svg>
-                {room.isDeafened ? "Deafened" : "Deafen"}
-              </button>
-
-              <button
-                id="voice-toggle-btn"
-                onClick={() => room.setVoiceConnected(!room.voiceConnected)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${room.voiceConnected ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" : "bg-surface-700 text-zinc-400 hover:bg-surface-600 hover:text-white"}`}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
-                </svg>
-                {room.voiceConnected ? "Voice Connected" : "Join Voice"}
-              </button>
-            </div>
-          )}
-        </div>
-      </footer>
+      {/* Bottom Vignette Effect */}
+      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[#ff6c37]/15 via-purple-600/5 to-transparent z-0" />
     </div>
   );
 }
