@@ -109,6 +109,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
   // Local state
   const [copied, setCopied] = useState(false);
+  const [showMobileChat, setShowMobileChat] = useState(false);
   const [rightPanel, setRightPanel] = useState<"queue" | "members">("queue");
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -631,7 +632,15 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   };
 
   const handleAudioEnded = () => {
-    handleNext();
+    if (room.isHost || allowGuestControl) {
+      handleNext();
+    } else {
+      // Guests just pause local playback and wait for host's change-song event
+      player.pause();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    }
   };
 
   // Host heartbeat to keep guests in sync and update server state
@@ -814,16 +823,16 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   return (
     <div className="h-screen flex flex-col bg-[#070709] text-zinc-100 font-sans overflow-hidden relative">
       {/* Top Bar */}
-      <header className="glass border-b border-white/5 px-6 py-4 flex items-center justify-between z-30 shrink-0">
-        <div className="flex items-center gap-4">
+      <header className="glass border-b border-white/5 px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between z-30 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors" title="Exit Room">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="sm:w-6 sm:h-6"><path d="M15 18l-6-6 6-6" /></svg>
           </Link>
           <div>
-            <h1 className="font-semibold text-lg text-white font-display flex items-center gap-2 tracking-tight">
-              {roomName}
-              <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#ff6c37]/15 text-[#ff6c37] border border-[#ff6c37]/15 font-bold uppercase">{roomType}</span>
-              {room.isHost && <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/10 font-bold">HOST</span>}
+            <h1 className="font-semibold text-sm sm:text-lg text-white font-display flex items-center gap-1.5 sm:gap-2 tracking-tight">
+              <span className="max-w-[100px] sm:max-w-xs truncate block">{roomName}</span>
+              <span className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-md bg-[#ff6c37]/15 text-[#ff6c37] border border-[#ff6c37]/15 font-bold uppercase shrink-0">{roomType}</span>
+              {room.isHost && <span className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/10 font-bold shrink-0">HOST</span>}
             </h1>
           </div>
         </div>
@@ -886,17 +895,25 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
           {roomType !== "SOLO" && (
             <div className="flex items-center gap-2.5">
+              {/* Chat Toggle Button for Mobile */}
+              <button
+                onClick={() => setShowMobileChat(!showMobileChat)}
+                className="md:hidden p-2 rounded-xl bg-zinc-900/60 border border-white/5 hover:border-[#ff6c37]/30 text-zinc-300 hover:text-white cursor-pointer transition-colors shadow-lg"
+                title="Toggle Chat"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+              </button>
               <button 
                 id="copy-invite-btn" 
                 onClick={copyInviteCode} 
-                className="relative overflow-hidden group py-2 px-3.5 rounded-xl text-xs font-bold bg-zinc-900/60 border border-white/5 hover:border-[#ff6c37]/30 text-zinc-300 hover:text-white transition-all duration-300 flex items-center gap-1.5 cursor-pointer shadow-lg shadow-black/20"
+                className="hidden sm:flex relative overflow-hidden group py-2 px-3.5 rounded-xl text-xs font-bold bg-zinc-900/60 border border-white/5 hover:border-[#ff6c37]/30 text-zinc-300 hover:text-white transition-all duration-300 items-center gap-1.5 cursor-pointer shadow-lg shadow-black/20"
               >
                 <div className="absolute inset-0 w-full h-full bg-linear-to-r from-orange-500/10 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="group-hover:rotate-12 transition-transform duration-300"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
                 {copied ? <span className="text-emerald-400 font-bold">Copied!</span> : <span>Copy Link</span>}
               </button>
               <button 
-                className="py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center gap-2 bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300 cursor-pointer border border-[#ff6c37]/25"
+                className="py-2 px-3 sm:py-2.5 sm:px-4 rounded-xl text-[10px] sm:text-xs font-extrabold flex items-center gap-1.5 sm:gap-2 bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300 cursor-pointer border border-[#ff6c37]/25"
                 onClick={copyInviteCode}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
@@ -919,17 +936,17 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     )}
 
     {/* Left Switcher Sidebar */}
-    <div className="w-16 md:w-20 border-r border-white/5 bg-zinc-950/40 backdrop-blur-md flex flex-col items-center py-6 gap-6 shrink-0 z-20 select-none">
+    <div className="w-12 md:w-20 border-r border-white/5 bg-zinc-950/40 backdrop-blur-md flex flex-col items-center py-4 md:py-6 gap-4 md:gap-6 shrink-0 z-20 select-none">
       <button
         onClick={() => handleSwitchMode("music")}
-        className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 relative group cursor-pointer ${
+        className={`w-9 h-9 md:w-12 md:h-12 rounded-lg md:rounded-xl flex items-center justify-center transition-all duration-300 relative group cursor-pointer ${
           activeMode === "music"
             ? "bg-linear-to-br from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/20"
             : "text-zinc-500 hover:text-white hover:bg-white/5"
         }`}
         title="Music Player"
       >
-        <Headphones size={20} />
+        <Headphones className="w-4 h-4 md:w-5 md:h-5" />
         {activeMode === "music" && (
           <motion.div
             layoutId="activeIndicator"
@@ -941,14 +958,14 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
       <button
         onClick={() => handleSwitchMode("youtube")}
-        className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 relative group cursor-pointer ${
+        className={`w-9 h-9 md:w-12 md:h-12 rounded-lg md:rounded-xl flex items-center justify-center transition-all duration-300 relative group cursor-pointer ${
           activeMode === "youtube"
             ? "bg-linear-to-br from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/20"
             : "text-zinc-500 hover:text-white hover:bg-white/5"
         }`}
         title="YouTube Watch Party"
       >
-        <Youtube size={20} />
+        <Youtube className="w-4 h-4 md:w-5 md:h-5" />
         {activeMode === "youtube" && (
           <motion.div
             layoutId="activeIndicator"
@@ -963,16 +980,16 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     {activeMode === "music" ? (
       /* Center: Music Player */
       <div className="flex-1 flex flex-col relative z-10 select-none">
-        <div className="absolute inset-0 opacity-15 blur-[150px] pointer-events-none" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.4), transparent 75%)" }} />
+        <div className="absolute inset-0 opacity-15 blur-[150px] pointer-events-none hidden md:block" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.4), transparent 75%)" }} />
         
         <div className="flex-1 flex flex-col items-center justify-center py-4 px-6 relative z-20 pb-24">
           {/* Rotating Vinyl Record Cover */}
           <div className={`relative mb-4 transition-all duration-700 ${player.isPlaying ? "scale-105" : "scale-100"}`}>
             {/* Glow backdrop */}
-            <div className={`absolute -inset-8 bg-orange-500/5 rounded-full blur-3xl opacity-0 transition-opacity duration-1000 ${player.isPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
+            <div className={`absolute -inset-8 bg-orange-500/5 rounded-full blur-3xl opacity-0 transition-opacity duration-1000 hidden md:block ${player.isPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
             
             {/* Rotating Vinyl Outer Disk */}
-            <div className={`w-48 h-48 md:w-64 md:h-64 lg:w-72 lg:h-72 rounded-full bg-zinc-950 border-[6px] border-zinc-900 shadow-2xl relative flex items-center justify-center transition-transform ${player.isPlaying ? "animate-spin-slow shadow-orange-500/5" : ""}`}>
+            <div className={`w-40 h-40 sm:w-48 sm:h-48 md:w-64 md:h-64 lg:w-72 lg:h-72 rounded-full bg-zinc-950 border-[6px] border-zinc-900 shadow-2xl relative flex items-center justify-center transition-transform ${player.isPlaying ? "animate-spin-slow shadow-orange-500/5" : ""}`}>
               {/* Vinyl Grooves (subtle concentric circles) */}
               <div className="absolute inset-2 rounded-full border border-white/5 opacity-40 pointer-events-none" />
               <div className="absolute inset-6 rounded-full border border-white/5 opacity-30 pointer-events-none" />
@@ -981,7 +998,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
               <div className="absolute inset-24 rounded-full border border-white/5 opacity-10 pointer-events-none" />
               
               {/* Center Album Art */}
-              <div className="w-24 h-24 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-full overflow-hidden border-4 border-zinc-950 relative z-10 shrink-0 select-none">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-full overflow-hidden border-4 border-zinc-950 relative z-10 shrink-0 select-none">
                 <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-full h-full object-cover pointer-events-none" />
               </div>
               
@@ -1028,7 +1045,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           </div>
 
           {/* Player controls */}
-          <div className="flex items-center justify-center gap-8">
+          <div className="flex items-center justify-center gap-4 sm:gap-8">
             <button id="shuffle-btn" onClick={() => player.toggleShuffle()} className={`transition-all hover:scale-110 p-1.5 cursor-pointer ${player.isShuffle ? "text-[#ff6c37]" : "text-zinc-500 hover:text-white"}`}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg>
             </button>
@@ -1063,24 +1080,24 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         <div className="absolute inset-0 opacity-10 blur-[120px] pointer-events-none" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.35), transparent 70%)" }} />
         
         {/* Top YouTube URL Input bar */}
-        <div className="w-full max-w-4xl mx-auto mt-6 mb-4 px-4 relative z-20">
-          <div className="glass p-3 rounded-2xl flex items-center gap-3 border border-white/5 shadow-2xl">
+        <div className="w-full max-w-4xl mx-auto mt-4 sm:mt-6 mb-4 px-4 relative z-20">
+          <div className="glass p-2 sm:p-3 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 border border-white/5 shadow-2xl">
             <input
               type="text"
               placeholder={
                 (room.isHost || allowGuestControl)
-                  ? "Paste YouTube video link here (e.g., https://www.youtube.com/watch?v=...)" 
+                  ? "Paste YouTube link (e.g., watch?v=...)" 
                   : "Waiting for host to play a video..."
               }
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
               disabled={!(room.isHost || allowGuestControl)}
-              className="flex-1 bg-zinc-900 border border-white/5 px-4 py-2.5 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ff6c37]/50 focus:ring-1 focus:ring-[#ff6c37]/20 transition-all font-medium disabled:opacity-60"
+              className="flex-1 bg-zinc-900 border border-white/5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ff6c37]/50 focus:ring-1 focus:ring-[#ff6c37]/20 transition-all font-medium disabled:opacity-60"
             />
             {(room.isHost || allowGuestControl) && (
               <button
                 onClick={handleStartWatchParty}
-                className="py-2.5 px-5 rounded-xl text-xs font-bold bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all cursor-pointer border border-[#ff6c37]/25 shrink-0"
+                className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl text-xs font-bold bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all cursor-pointer border border-[#ff6c37]/25 shrink-0 text-center"
               >
                 Start Watch Party
               </button>
@@ -1095,7 +1112,13 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
             <div className={`absolute -inset-4 bg-orange-500/5 rounded-3xl blur-2xl opacity-0 transition-opacity duration-1000 ${videoIsPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
 
             {youtubeVideoId ? (
-              <div id="youtube-iframe-player" className="w-full h-full relative z-10" />
+              <>
+                <div id="youtube-iframe-player" className="w-full h-full relative z-10" />
+                {/* Transparent click overlay to block direct player clicks for guests */}
+                {!(room.isHost || allowGuestControl) && (
+                  <div className="absolute inset-0 bg-transparent z-20 cursor-default" />
+                )}
+              </>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-zinc-900/50 backdrop-blur-md select-none z-10">
                 <div className="w-16 h-16 rounded-2xl bg-zinc-950 border border-white/5 flex items-center justify-center text-zinc-500 mb-4 shadow-lg shadow-black/40">
@@ -1115,16 +1138,16 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           {youtubeVideoId && (
             <div className="w-full max-w-4xl mt-6">
               {/* Track Info (Title & Channel) */}
-              <div className="text-left mb-4 px-1 flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-extrabold text-white font-display mb-1 tracking-tight truncate max-w-lg md:max-w-2xl">{videoTitle || "Loading YouTube Video..."}</h2>
-                  <p className="text-xs text-[#ff6c37] font-bold tracking-wide truncate">{videoAuthor || "Syncora Watch Party"}</p>
+              <div className="text-left mb-4 px-1 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-xl font-extrabold text-white font-display mb-0.5 sm:mb-1 tracking-tight truncate max-w-xs sm:max-w-lg md:max-w-2xl">{videoTitle || "Loading YouTube Video..."}</h2>
+                  <p className="text-[11px] sm:text-xs text-[#ff6c37] font-bold tracking-wide truncate">{videoAuthor || "Syncora Watch Party"}</p>
                 </div>
 
                 {/* Control Access Toggle for Host / Indicator for Guest */}
                 {room.isHost ? (
-                  <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-zinc-950/60 border border-white/5 shadow-lg shrink-0 select-none">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Guest Control</span>
+                  <div className="flex items-center gap-3 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl sm:rounded-2xl bg-zinc-950/60 border border-white/5 shadow-lg shrink-0 select-none self-start sm:self-auto">
+                    <span className="text-[9px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Guest Control</span>
                     <button
                       onClick={() => {
                         const nextVal = !allowGuestControl;
@@ -1147,7 +1170,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                     </button>
                   </div>
                 ) : (
-                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[9px] font-bold uppercase tracking-wider shrink-0 select-none ${
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider shrink-0 select-none self-start sm:self-auto ${
                     allowGuestControl 
                       ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/15" 
                       : "bg-zinc-900/60 text-zinc-500 border-white/5"
@@ -1159,27 +1182,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
               </div>
 
               {/* Custom Controls Panel */}
-              <div className="glass border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-xl">
-                <div className="flex items-center gap-4">
-                  {/* Play/Pause Button */}
-                  <button
-                    onClick={handleYtPlayPause}
-                    disabled={!(room.isHost || allowGuestControl)}
-                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-md shrink-0 focus:outline-none ${
-                      (room.isHost || allowGuestControl)
-                        ? "bg-white text-black hover:scale-105 active:scale-95 cursor-pointer" 
-                        : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-                    }`}
-                    title={videoIsPlaying ? "Pause Video" : "Play Video"}
-                  >
-                    {videoIsPlaying ? (
-                      <Pause size={16} fill="currentColor" strokeWidth={0} />
-                    ) : (
-                      <Play size={16} fill="currentColor" className="ml-0.5" strokeWidth={0} />
-                    )}
-                  </button>
-
-                  {/* Seekbar Timeline */}
+              <div className="glass border border-white/5 p-3 sm:p-4 rounded-2xl flex flex-col gap-2.5 sm:gap-3 shadow-xl">
+                {/* Timeline Seekbar and Time Indicators */}
+                <div className="flex flex-col gap-1.5">
                   <input
                     type="range"
                     min={0}
@@ -1195,19 +1200,36 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                         emitSync("video-seek", { videoId: youtubeVideoId, currentTime: newPos });
                       }
                     }}
-                    className="seek-bar flex-1"
+                    className="seek-bar w-full"
                     disabled={!(room.isHost || allowGuestControl)}
                     style={{
                       background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${(videoPosition / (videoDuration || 1)) * 100}%, rgba(255,255,255,0.08) ${(videoPosition / (videoDuration || 1)) * 100}%, rgba(255,255,255,0.08) 100%)`,
                     }}
                   />
-
-                  {/* Time indicators */}
-                  <div className="text-[10px] text-zinc-500 font-bold font-mono tracking-wider shrink-0 select-none">
+                  <div className="flex justify-between text-[10px] text-zinc-500 font-bold font-mono tracking-wider select-none">
                     <span>{formatTime(videoPosition)}</span>
-                    <span className="mx-1">/</span>
                     <span>{formatTime(videoDuration)}</span>
                   </div>
+                </div>
+
+                {/* Controls (Play/Pause, Deafen, etc.) */}
+                <div className="flex items-center justify-center pt-1">
+                  <button
+                    onClick={handleYtPlayPause}
+                    disabled={!(room.isHost || allowGuestControl)}
+                    className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-md shrink-0 focus:outline-none ${
+                      (room.isHost || allowGuestControl)
+                        ? "bg-white text-black hover:scale-105 active:scale-95 cursor-pointer" 
+                        : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                    }`}
+                    title={videoIsPlaying ? "Pause Video" : "Play Video"}
+                  >
+                    {videoIsPlaying ? (
+                      <Pause size={18} fill="currentColor" strokeWidth={0} />
+                    ) : (
+                      <Play size={18} fill="currentColor" className="ml-0.5" strokeWidth={0} />
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -1218,21 +1240,21 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
     {/* Floating Voice Controls overlays both players */}
     {roomType !== "SOLO" && (
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30">
-        <div className="flex items-center gap-2.5 bg-zinc-950/85 backdrop-blur-md border border-white/5 p-1.5 rounded-2xl shadow-2xl">
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 max-w-[90vw]">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 bg-zinc-950/85 backdrop-blur-md border border-white/5 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl shadow-2xl">
           <button
             id="mic-toggle-btn"
             onClick={() => {
               if (!room.voiceConnected) room.setVoiceConnected(true);
               room.toggleMic();
             }}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
               room.micMuted 
                 ? "bg-red-500/10 text-red-400 border border-red-500/15" 
                 : "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20"
             }`}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
               {room.micMuted ? (
                 <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
               ) : (
@@ -1245,13 +1267,13 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           <button
             id="deafen-toggle-btn"
             onClick={() => room.toggleDeafen()}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
               room.isDeafened 
                 ? "bg-red-500/10 text-red-400 border border-red-500/15 animate-pulse" 
                 : "bg-zinc-800 text-zinc-300 border border-white/5 hover:bg-zinc-700"
             }`}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
               {room.isDeafened ? (
                  <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
               ) : (
@@ -1264,33 +1286,53 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           <button
             id="voice-toggle-btn"
             onClick={() => room.setVoiceConnected(!room.voiceConnected)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
               room.voiceConnected 
                 ? "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20" 
                 : "bg-zinc-800 text-zinc-400 border border-white/5 hover:bg-zinc-700 hover:text-white"
             }`}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
               <path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
             </svg>
-            {room.voiceConnected ? "Connected" : "Join Voice"}
+            {room.voiceConnected ? "Connected" : "Join"}
           </button>
         </div>
       </div>
     )}
 
+    {/* Backdrop overlay for mobile drawer */}
+    {showMobileChat && roomType !== "SOLO" && (
+      <div 
+        className="fixed inset-0 bg-black/55 z-30 md:hidden"
+        onClick={() => setShowMobileChat(false)}
+      />
+    )}
+
     {/* Right Side: Dynamic Real-time Chat */}
     {roomType !== "SOLO" && (
-      <aside className="w-80 border-l border-white/5 bg-zinc-950/60 backdrop-blur-md flex flex-col shrink-0 z-20 h-full">
+      <aside className={`fixed md:relative inset-y-0 right-0 z-40 md:z-20 w-80 border-l border-white/5 bg-[#0b0c10]/95 md:bg-zinc-950/60 backdrop-blur-md flex flex-col shrink-0 h-full transition-transform duration-300 ${
+        showMobileChat ? "translate-x-0" : "translate-x-full md:translate-x-0"
+      }`}>
         {/* Chat Header */}
         <div className="p-5 border-b border-white/5 flex items-center justify-between shrink-0 select-none">
           <div>
             <h2 className="text-sm font-bold font-display text-white uppercase tracking-wider">Room Chat</h2>
             <p className="text-[10px] text-zinc-500 mt-0.5 font-medium">Messages are synchronized</p>
           </div>
-          <div className="flex items-center gap-1.5 bg-[#ff6c37]/10 px-2 py-0.5 rounded-md border border-[#ff6c37]/10 text-[9px] font-bold text-[#ff6c37] uppercase">
-            <span className="w-1.5 h-1.5 bg-[#ff6c37] rounded-full animate-pulse" />
-            Live
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-[#ff6c37]/10 px-2 py-0.5 rounded-md border border-[#ff6c37]/10 text-[9px] font-bold text-[#ff6c37] uppercase">
+              <span className="w-1.5 h-1.5 bg-[#ff6c37] rounded-full animate-pulse" />
+              Live
+            </div>
+            {/* Close Chat button on mobile */}
+            <button 
+              onClick={() => setShowMobileChat(false)}
+              className="md:hidden p-1.5 text-zinc-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+              title="Close Chat"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
           </div>
         </div>
 

@@ -3,8 +3,6 @@
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useRef, useEffect } from "react";
-import { usePlayerStore } from "@/stores/playerStore";
 import {
   Home,
   Users,
@@ -13,102 +11,16 @@ import {
   Settings,
   LogOut,
   CreditCard,
-  Shield,
-  Play,
-  Pause,
-  Volume2,
-  Maximize2,
-  SkipForward,
-  SkipBack,
-  Shuffle,
-  Repeat,
-  ListMusic
+  Shield
 } from "lucide-react";
-
-const dungenTrack = {
-  id: "dungen_1",
-  title: "Dungen Live",
-  artist: "Dungen",
-  album: "LP • 2020",
-  duration: 180,
-  thumbnail: "https://picsum.photos/seed/dungen/100/100",
-  audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3"
-};
-
-const defaultTrack = {
-  id: "track_1",
-  title: "Lady Magnolia",
-  artist: "Piero Umiliani",
-  album: "Piero Umiliani Hits",
-  duration: 240,
-  thumbnail: "https://picsum.photos/seed/ladymagnolia/100/100",
-  audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-};
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
   const pathname = usePathname();
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const player = usePlayerStore();
 
   const userName = session?.user?.name || "User";
   const userEmail = session?.user?.email || "";
   const userImage = session?.user?.image || null;
-
-  const track = player.currentTrack || defaultTrack;
-  const isPlaying = player.isPlaying;
-  const position = player.position;
-  const volume = player.isMuted ? 0 : player.volume;
-
-  // Synchronize audio tag with store state when NOT inside a room page
-  const isRoomPage = pathname.includes("/room/");
-  
-  useEffect(() => {
-    if (isRoomPage || !audioRef.current) return;
-    
-    if (isPlaying) {
-      audioRef.current.play().catch((e) => console.log("Playback interrupted:", e));
-    } else {
-      audioRef.current.pause();
-    }
-  }, [isPlaying, track.id, isRoomPage]);
-
-  useEffect(() => {
-    if (isRoomPage || !audioRef.current) return;
-    audioRef.current.volume = volume / 100;
-  }, [volume, isRoomPage]);
-
-  const handleTimeUpdate = () => {
-    if (isRoomPage || !audioRef.current) return;
-    if (isPlaying) {
-      player.setPosition(audioRef.current.currentTime);
-    }
-  };
-
-  const handleAudioEnded = () => {
-    if (isRoomPage) return;
-    player.next();
-  };
-
-  const handlePlayPause = () => {
-    if (isPlaying) {
-      player.pause();
-    } else {
-      // If store is empty, set default queue
-      if (!player.currentTrack) {
-        player.setQueue([defaultTrack, dungenTrack]);
-      } else {
-        player.play();
-      }
-    }
-  };
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
 
   const navSections = [
     {
@@ -132,23 +44,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="h-screen max-h-screen flex flex-col bg-[#070709] text-zinc-100 font-sans antialiased overflow-hidden">
-      {!isRoomPage && track.audioUrl && (
-        <audio
-          ref={audioRef}
-          src={track.audioUrl}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={handleAudioEnded}
-        />
-      )}
-
       {/* Main Container */}
-      <div className="flex flex-1 flex-row h-[calc(100vh-80px)] overflow-hidden">
+      <div className="flex flex-1 flex-row h-[calc(100vh-56px)] md:h-screen overflow-hidden">
         {/* Left Sidebar */}
-        <aside className="w-64 bg-black flex flex-col shrink-0 border-r border-white/5 select-none">
+        <aside className="hidden md:flex w-64 bg-black flex-col shrink-0 border-r border-white/5 select-none">
           {/* Logo */}
           <div className="p-6 pb-2">
             <Link href="/" className="flex items-center gap-2.5 group">
-              <div className="w-9 h-9 rounded-xl bg-linear-to-br from-orange-500 to-red-600 flex items-center justify-center shadow-lg shadow-orange-500/10">
+              <div className="w-9 h-9 rounded-xl bg-linear-to-br from-orange-500 to-red-600 flex-none flex items-center justify-center shadow-lg shadow-orange-500/10">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
                   <path d="M9 18V5l12-2v13" />
                   <circle cx="6" cy="18" r="3" />
@@ -199,7 +102,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span>Sign Out</span>
             </button>
           </div>
-
         </aside>
 
         {/* Main Content Area */}
@@ -208,114 +110,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </main>
       </div>
 
-      {/* Bottom Global Playback Bar */}
-      <footer className="h-20 bg-black border-t border-white/5 flex items-center justify-between px-6 z-50 select-none">
-        {/* Track Details */}
-        <div className="flex items-center gap-3 w-1/4 min-w-[200px]">
-          <img
-            src={track.thumbnail}
-            className={`w-12 h-12 rounded-lg object-cover shadow-lg transition-transform duration-500 ${
-              isPlaying ? "scale-105 shadow-orange-500/5" : "scale-100"
-            }`}
-            alt="Track Cover"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-white truncate hover:underline cursor-pointer">
-              {track.title}
-            </p>
-            <p className="text-xs text-zinc-400 truncate hover:text-white cursor-pointer transition-colors">
-              {track.artist}
-            </p>
-          </div>
-        </div>
-
-        {/* Playback Controls & Progress Bar */}
-        <div className="flex flex-col items-center gap-2 flex-1 max-w-[600px] px-4">
-          {/* Controls Row */}
-          <div className="flex items-center gap-5 text-zinc-400">
-            <button
-              onClick={() => player.toggleShuffle()}
-              className={`hover:text-white transition-colors p-1 ${
-                player.isShuffle ? "text-[#ff6c37]" : ""
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="flex md:hidden h-14 bg-zinc-950 border-t border-white/5 items-center justify-around z-50 select-none shrink-0">
+        {navSections[0].items.map((item) => {
+          const isActive = pathname === item.href;
+          return (
+            <Link
+              key={item.label}
+              href={item.href}
+              className={`flex flex-col items-center justify-center gap-1 text-[10px] font-bold transition-colors ${
+                isActive ? "text-[#ff6c37]" : "text-zinc-500 hover:text-zinc-300"
               }`}
-              title="Shuffle"
             >
-              <Shuffle size={16} />
-            </button>
-            <button onClick={() => player.prev()} className="hover:text-white transition-all active:scale-90" title="Previous">
-              <SkipBack size={18} fill="currentColor" />
-            </button>
-            <button
-              onClick={handlePlayPause}
-              className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer"
-              title={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? (
-                <Pause size={14} fill="black" strokeWidth={3} />
-              ) : (
-                <Play size={14} fill="black" className="ml-0.5" strokeWidth={3} />
-              )}
-            </button>
-            <button onClick={() => player.next()} className="hover:text-white transition-all active:scale-90" title="Next">
-              <SkipForward size={18} fill="currentColor" />
-            </button>
-            <button
-              onClick={() => player.toggleRepeat()}
-              className={`hover:text-white transition-colors p-1 ${
-                player.isRepeat ? "text-[#ff6c37]" : ""
-              }`}
-              title="Repeat"
-            >
-              <Repeat size={16} />
-            </button>
-          </div>
-
-          {/* Seekbar Row */}
-          <div className="flex items-center gap-3 w-full text-[11px] text-zinc-500 font-semibold font-mono">
-            <span className="w-8 text-right">{formatTime(position)}</span>
-            <input
-              type="range"
-              min={0}
-              max={track.duration || 100}
-              value={position}
-              onChange={(e) => player.seek(Number(e.target.value))}
-              className="seek-bar flex-1 animate-fade-in"
-              style={{
-                background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${
-                  (position / (track.duration || 1)) * 100
-                }%, rgba(255,255,255,0.08) ${(position / (track.duration || 1)) * 100}%, rgba(255,255,255,0.08) 100%)`,
-              }}
-            />
-            <span className="w-8">{formatTime(track.duration || 0)}</span>
-          </div>
-        </div>
-
-        {/* Volume & Aux Actions */}
-        <div className="flex items-center justify-end gap-4 w-1/4 min-w-[200px] text-zinc-400">
-          <button className="hover:text-white transition-colors">
-            <ListMusic size={18} />
-          </button>
-          <div className="flex items-center gap-2 group w-32">
-            <button onClick={() => player.toggleMute()} className="hover:text-white transition-colors shrink-0">
-              <Volume2 size={18} className={player.isMuted ? "text-red-500" : ""} />
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={volume}
-              onChange={(e) => player.setVolume(Number(e.target.value))}
-              className="seek-bar flex-1"
-              style={{
-                background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${volume}%, rgba(255,255,255,0.08) ${volume}%, rgba(255,255,255,0.08) 100%)`,
-              }}
-            />
-          </div>
-          <button className="hover:text-white transition-colors shrink-0">
-            <Maximize2 size={16} />
-          </button>
-        </div>
-      </footer>
+              {item.icon}
+              <span className="scale-90">{item.label}</span>
+            </Link>
+          );
+        })}
+        {/* Mobile Settings Option */}
+        <Link
+          href="/dashboard/settings"
+          className={`flex flex-col items-center justify-center gap-1 text-[10px] font-bold transition-colors ${
+            pathname === "/dashboard/settings" ? "text-[#ff6c37]" : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          <Settings size={18} />
+          <span className="scale-90">Settings</span>
+        </Link>
+      </nav>
     </div>
   );
 }

@@ -193,7 +193,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="pb-12 px-8 select-none">
+    <div className="pb-12 px-4 md:px-8 select-none">
       {/* Top Navigation Bar */}
       <header className="h-16 flex items-center justify-between mb-6 sticky top-0 bg-[#070709]/80 backdrop-blur-md z-30 pt-4 pb-2 border-b border-white/3">
         {/* Left Search Bar Container */}
@@ -227,10 +227,10 @@ export default function DashboardPage() {
       </header>
 
       {/* Curated Spotlight Hero Banner */}
-      <section className="mb-8 relative rounded-3xl overflow-hidden bg-linear-to-r from-[#e34222] via-[#e85233] to-[#ff7d4b] h-72 md:h-80 shadow-2xl flex items-center group select-none">
+      <section className="mb-8 relative rounded-3xl overflow-hidden bg-linear-to-r from-[#e34222] via-[#e85233] to-[#ff7d4b] h-64 sm:h-72 md:h-80 shadow-2xl flex items-center group select-none">
         {/* Blended Portrait Background */}
         <div 
-          className="absolute right-0 top-0 bottom-0 w-1/2 md:w-2/5 bg-cover bg-center mix-blend-luminosity opacity-85 group-hover:scale-102 transition-transform duration-700 pointer-events-none"
+          className="absolute right-0 top-0 bottom-0 w-full md:w-2/5 bg-cover bg-center mix-blend-luminosity opacity-40 md:opacity-85 group-hover:scale-102 transition-transform duration-700 pointer-events-none"
           style={{
             backgroundImage: "url('https://images.unsplash.com/photo-1506157786151-b8491531f063?q=80&w=600&auto=format&fit=crop')",
             maskImage: "linear-gradient(to left, rgba(0,0,0,1) 40%, rgba(0,0,0,0) 100%)",
@@ -238,76 +238,77 @@ export default function DashboardPage() {
           }}
         />
 
-        <div className="absolute inset-0 bg-linear-to-r from-[#e34222] via-[#e85233]/70 to-transparent pointer-events-none" />
+        {/* Overlay - Dark radial overlay for text pop on mobile */}
+        <div className="absolute inset-0 bg-linear-to-r from-black/80 via-black/40 md:from-[#e34222] md:via-[#e85233]/70 md:to-transparent pointer-events-none" />
 
-        <div className="relative z-10 pl-8 md:pl-12 max-w-xl text-left">
-          <span className="text-[10px] font-extrabold text-white/70 uppercase tracking-widest block mb-2 font-mono">
+        <div className="relative z-10 pl-5 pr-5 md:pl-12 max-w-xl text-left">
+          <span className="text-[9px] md:text-[10px] font-extrabold text-white/70 uppercase tracking-widest block mb-1.5 font-mono">
             CURATED PLAYLIST
           </span>
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold font-display text-white mb-3 tracking-tight leading-none">
+          <h1 className="text-3xl md:text-5xl lg:text-6xl font-bold font-display text-white mb-2 tracking-tight leading-none">
             R&B Hits
           </h1>
-          <p className="text-white/80 text-xs md:text-sm mb-6 leading-relaxed max-w-md font-medium">
-            Hot Shot, Confessions, Beyonce, Usher, The-Dream, Mario, Akif, Princeton Michael... Enjoy absolute sync listening now.
+          <p className="text-white/80 text-[11px] md:text-sm mb-4 md:mb-6 leading-relaxed max-w-xs md:max-w-md font-medium">
+            Beyonce, Usher, Mario, Akif, Princeton Michael... Enjoy absolute sync listening now.
           </p>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 md:gap-4">
             <button 
               onClick={() => setIsBannerLiked(!isBannerLiked)}
-              className={`w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all cursor-pointer ${
+              className={`w-8 h-8 md:w-9 md:h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all cursor-pointer ${
                 isBannerLiked ? "bg-white text-[#e34222] hover:bg-white" : ""
               }`}
             >
-              <Heart size={16} fill={isBannerLiked ? "currentColor" : "none"} />
+              <Heart size={14} fill={isBannerLiked ? "currentColor" : "none"} className="md:w-4 md:h-4" />
             </button>
-            <span className="text-xs font-semibold text-white/90">
-              50,056 Likes &bull; 213 Songs, 13 hr 7 min
+            <span className="text-[10px] md:text-xs font-semibold text-white/90">
+              50,056 Likes &bull; 213 Songs
             </span>
           </div>
         </div>
       </section>
 
       {/* Quick Action Navigation Buttons */}
-      <section className="grid sm:grid-cols-3 gap-4 mb-8">
+      <section className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-4 mb-8">
         <button 
           id="create-room-btn" 
           onClick={() => setShowCreate(true)} 
-          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
+          className="bg-[#121216]/60 border border-white/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-5 flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left gap-2 sm:gap-4 group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
         >
-          <div className="w-11 h-11 rounded-xl bg-linear-to-br from-orange-500 to-red-600 flex items-center justify-center text-white shadow-lg shadow-orange-500/10 group-hover:scale-105 transition-all">
-            <Plus size={20} strokeWidth={2.5} />
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-linear-to-br from-orange-500 to-red-600 flex items-center justify-center text-white shadow-lg shadow-orange-500/10 group-hover:scale-105 transition-all shrink-0">
+            <Plus size={16} className="sm:w-5 sm:h-5" strokeWidth={2.5} />
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-white tracking-wide">Create Room</h3>
-            <p className="text-xs text-zinc-500 mt-0.5">Start a synchronized live session</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-[10px] sm:text-sm text-white tracking-wide truncate">Create Room</h3>
+            <p className="hidden sm:block text-xs text-zinc-500 mt-0.5">Start a synchronized live session</p>
           </div>
         </button>
 
         <button 
           id="join-room-btn" 
           onClick={() => setShowJoin(true)} 
-          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
+          className="bg-[#121216]/60 border border-white/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-5 flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left gap-2 sm:gap-4 group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
         >
-          <div className="w-11 h-11 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/10 group-hover:scale-105 transition-all">
-            <UserPlus size={18} strokeWidth={2.5} />
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/10 group-hover:scale-105 transition-all shrink-0">
+            <UserPlus size={14} className="sm:w-4.5 sm:h-4.5" strokeWidth={2.5} />
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-white tracking-wide">Join Room</h3>
-            <p className="text-xs text-zinc-500 mt-0.5">Connect with code or invite link</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-[10px] sm:text-sm text-white tracking-wide truncate">Join Room</h3>
+            <p className="hidden sm:block text-xs text-zinc-500 mt-0.5">Connect with code or link</p>
           </div>
         </button>
 
         <button 
           id="solo-mode-btn" 
           onClick={() => handleCreateRoom("Solo Session 🎧", "SOLO")} 
-          className="bg-[#121216]/60 border border-white/5 rounded-2xl p-5 flex items-center gap-4 text-left group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
+          className="bg-[#121216]/60 border border-white/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-5 flex flex-col sm:flex-row items-center sm:items-center text-center sm:text-left gap-2 sm:gap-4 group hover:bg-[#121216] hover:border-white/10 hover:-translate-y-px transition-all cursor-pointer shadow-lg shadow-black/20"
         >
-          <div className="w-11 h-11 rounded-xl bg-linear-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/10 group-hover:scale-105 transition-all">
-            <Headset size={18} strokeWidth={2.5} />
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-linear-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/10 group-hover:scale-105 transition-all shrink-0">
+            <Headset size={14} className="sm:w-4.5 sm:h-4.5" strokeWidth={2.5} />
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-white tracking-wide">Solo Mode</h3>
-            <p className="text-xs text-zinc-500 mt-0.5">Listen privately on your own</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-[10px] sm:text-sm text-white tracking-wide truncate">Solo Mode</h3>
+            <p className="hidden sm:block text-xs text-zinc-500 mt-0.5">Listen privately on your own</p>
           </div>
         </button>
       </section>
@@ -321,7 +322,7 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
           {mockRooms.map((room) => (
             <Link 
               key={room.id} 
@@ -401,10 +402,10 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-6 shrink-0">
-                <span className="text-xs text-zinc-500 font-medium font-mono">{track.playedAt}</span>
+              <div className="flex items-center gap-2 sm:gap-6 shrink-0">
+                <span className="text-[10px] sm:text-xs text-zinc-500 font-medium font-mono">{track.playedAt}</span>
                 
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white p-1 hover:bg-white/5 rounded-md">
+                <button className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white p-1 hover:bg-white/5 rounded-md">
                   <Play size={14} fill="currentColor" />
                 </button>
               </div>
