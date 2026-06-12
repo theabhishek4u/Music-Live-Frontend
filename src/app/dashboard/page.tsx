@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, ChevronLeft, ChevronRight, Play, Plus, UserPlus, Headset, Heart, Calendar } from "lucide-react";
+import { Search, Play, Plus, UserPlus, Headset, Heart, Calendar } from "lucide-react";
 
 /* ===== MOCK DATA ===== */
 const mockRooms = [
@@ -166,7 +166,6 @@ export default function DashboardPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeSubTab, setActiveSubTab] = useState<"rooms" | "trending" | "featured">("rooms");
   const [isBannerLiked, setIsBannerLiked] = useState(false);
 
   useEffect(() => {
@@ -197,56 +196,16 @@ export default function DashboardPage() {
     <div className="pb-12 px-8 select-none">
       {/* Top Navigation Bar */}
       <header className="h-16 flex items-center justify-between mb-6 sticky top-0 bg-[#070709]/80 backdrop-blur-md z-30 pt-4 pb-2 border-b border-white/3">
-        {/* Navigation Breadcrumbs */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <button className="w-8 h-8 rounded-full bg-zinc-900 border border-white/5 hover:text-white text-zinc-400 flex items-center justify-center transition-all cursor-pointer">
-              <ChevronLeft size={16} />
-            </button>
-            <button className="w-8 h-8 rounded-full bg-zinc-900 border border-white/5 hover:text-white text-zinc-400 flex items-center justify-center transition-all cursor-pointer">
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          <div className="text-xs font-bold text-zinc-400 tracking-wider flex items-center gap-1.5 uppercase select-none">
-            <span>Discover</span>
-            <span className="text-zinc-600">/</span>
-            <span className="text-white">Rooms</span>
-          </div>
-        </div>
-
-        {/* Center Search / Header Menu */}
-        <div className="flex items-center gap-8 flex-1 max-w-lg mx-6">
-          <div className="relative w-full">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-            <input
-              type="text"
-              placeholder="Search rooms, playlists, tracks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-900 border border-white/5 pl-11 pr-4 py-2 text-sm text-white rounded-full placeholder-zinc-500 focus:outline-none focus:border-[#ff6c37]/50 focus:ring-1 focus:ring-[#ff6c37]/20 transition-all font-medium"
-            />
-          </div>
-
-          <div className="flex items-center gap-5 text-xs font-bold text-zinc-400 shrink-0">
-            {[
-              { id: "rooms", label: "Rooms" },
-              { id: "trending", label: "Trending" },
-              { id: "featured", label: "Featured" }
-            ].map((subTab) => (
-              <button
-                key={subTab.id}
-                onClick={() => setActiveSubTab(subTab.id as any)}
-                className={`hover:text-white transition-all relative py-1 cursor-pointer ${
-                  activeSubTab === subTab.id ? "text-white" : ""
-                }`}
-              >
-                {subTab.label}
-                {activeSubTab === subTab.id && (
-                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#ff6c37] rounded-full" />
-                )}
-              </button>
-            ))}
-          </div>
+        {/* Left Search Bar Container */}
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+          <input
+            type="text"
+            placeholder="Search rooms, playlists, tracks..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-zinc-900 border border-white/5 pl-11 pr-4 py-2 text-sm text-white rounded-full placeholder-zinc-500 focus:outline-none focus:border-[#ff6c37]/50 focus:ring-1 focus:ring-[#ff6c37]/20 transition-all font-medium"
+          />
         </div>
 
         {/* User Session Info */}

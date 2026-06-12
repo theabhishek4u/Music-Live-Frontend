@@ -186,32 +186,30 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       });
     });
 
-    // Sync events (for guests)
+    // Sync events (for everyone in the room)
     socket.on("music-state-update", (state) => {
-      if (!isHostParam) {
-        const track = demoTracks.find((t) => t.id === state.songId) || player.currentTrack;
-        if (track && track.id !== player.currentTrack?.id) {
-          player.setTrack(track);
+      const track = demoTracks.find((t) => t.id === state.songId) || player.currentTrack;
+      if (track && track.id !== player.currentTrack?.id) {
+        player.setTrack(track);
+      }
+      if (state.isPlaying) {
+        const elapsed = (Date.now() - state.timestamp) / 1000;
+        const newPos = state.currentTime + elapsed;
+        
+        // Drift correction: if drift > 250ms, force sync
+        const localTime = audioRef.current?.currentTime || 0;
+        if (Math.abs(localTime - newPos) > 0.25) {
+           player.seek(newPos);
+           if (audioRef.current) audioRef.current.currentTime = newPos;
         }
-        if (state.isPlaying) {
-          const elapsed = (Date.now() - state.timestamp) / 1000;
-          const newPos = state.currentTime + elapsed;
-          
-          // Drift correction: if drift > 250ms, force sync
-          const localTime = audioRef.current?.currentTime || 0;
-          if (Math.abs(localTime - newPos) > 0.25) {
-             player.seek(newPos);
-             if (audioRef.current) audioRef.current.currentTime = newPos;
-          }
-          
-          player.play();
-        } else {
-          player.seek(state.currentTime);
-          if (audioRef.current) {
-            audioRef.current.currentTime = state.currentTime;
-          }
-          player.pause();
+        
+        player.play();
+      } else {
+        player.seek(state.currentTime);
+        if (audioRef.current) {
+          audioRef.current.currentTime = state.currentTime;
         }
+        player.pause();
       }
     });
 
@@ -263,15 +261,15 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     handleNext();
   };
 
-  // Broadcast sync events when host performs actions
+  // Broadcast sync events when users perform actions
   const emitSync = useCallback(
     (event: string, data: any) => {
-      if (room.isHost && room.isConnected) {
+      if (room.isConnected) {
         const socket = getSocket();
         socket.emit(event, { roomId, ...data });
       }
     },
-    [room.isHost, room.isConnected, roomId]
+    [room.isConnected, roomId]
   );
 
   // Host heartbeat to keep guests in sync and update server state
