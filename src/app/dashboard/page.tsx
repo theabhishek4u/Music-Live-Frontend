@@ -250,15 +250,20 @@ export default function DashboardPage() {
         </div>
 
         {/* User Session Info */}
-        <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs font-bold text-zinc-400">{userName.split(" ")[0]}</span>
-          {session.user.image ? (
-            <img src={session.user.image} alt={userName} className="w-8 h-8 rounded-full border border-white/10" />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-linear-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold">
-              {userName.charAt(0).toUpperCase()}
-            </div>
-          )}
+        <div className="shrink-0">
+          <Link 
+            href="/dashboard/profile"
+            className="block cursor-pointer hover:scale-105 active:scale-95 transition-all focus:outline-none"
+            title="Profile"
+          >
+            {session.user.image ? (
+              <img src={session.user.image} alt={userName} className="w-9 h-9 rounded-xl border border-white/10 object-cover shadow-md shadow-black/20" />
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-linear-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs font-bold shadow-md shadow-black/20">
+                {userName.charAt(0).toUpperCase()}
+              </div>
+            )}
+          </Link>
         </div>
       </header>
 
