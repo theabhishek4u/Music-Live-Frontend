@@ -133,6 +133,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   const pendingVideoState = useRef<{ currentTime: number; isPlaying: boolean } | null>(null);
   const lastUpdateRef = useRef<{ currentTime: number; isPlaying: boolean; timestamp: number } | null>(null);
   const expectedStateRef = useRef<{ state: number; timestamp: number } | null>(null);
+  const isSyncingRef = useRef(false); // true while processing an incoming sync event to block re-emissions
+  const lastEmitRef = useRef<number>(0); // timestamp of last outgoing sync emit to rate-limit
+  const stateChangeTimerRef = useRef<NodeJS.Timeout | null>(null); // debounce onStateChange emissions
   const isDraggingMusicSeekRef = useRef(false);
   const isDraggingYtSeekRef = useRef(false);
 
@@ -289,6 +292,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
     // Sync YouTube events (for everyone in the room)
     socket.on("video-state-update", (state: any) => {
+      // Block outgoing emissions while processing this incoming sync
+      isSyncingRef.current = true;
+
       // Sync guest control state
       if (state.allowGuestControl !== undefined) {
         setAllowGuestControl(state.allowGuestControl);
@@ -303,8 +309,10 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         if (audioRef.current) audioRef.current.pause();
       }
 
-      if (state.videoId !== youtubeVideoId) {
+      const isNewVideo = state.videoId !== activeVideoIdRef.current;
+      if (isNewVideo) {
         setYoutubeVideoId(state.videoId);
+        activeVideoIdRef.current = state.videoId;
         setYoutubeUrl(`https://www.youtube.com/watch?v=${state.videoId}`);
         if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === "function") {
           expectedStateRef.current = { state: state.isPlaying ? 1 : 2, timestamp: Date.now() };
@@ -339,15 +347,20 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           ytPlayerRef.current.pauseVideo();
         }
 
-        // Sync timeline position (Drift limit: 250ms)
+        // Sync timeline position (Drift limit: 1.5s to avoid over-correction)
         const localTime = ytPlayerRef.current.getCurrentTime() || 0;
-        if (Math.abs(localTime - targetTime) > 0.25) {
+        if (Math.abs(localTime - targetTime) > 1.5) {
           expectedStateRef.current = { state: state.isPlaying ? 1 : 2, timestamp: Date.now() };
           ytPlayerRef.current.seekTo(targetTime, true);
         }
       } else {
         pendingVideoState.current = { currentTime: targetTime, isPlaying: state.isPlaying };
       }
+
+      // Release the sync lock after YouTube API has had time to process
+      setTimeout(() => {
+        isSyncingRef.current = false;
+      }, 2000);
     });
 
     socket.on("disconnect", () => {
@@ -478,10 +491,16 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
             setVideoAuthor(data.author || "Unknown Channel");
           }
 
+          // Only care about play (1) and pause (2) states — ignore buffering (3), cued (5), unstarted (-1), ended (0)
+          if (state !== 1 && state !== 2) return;
+
+          // Block re-emission if we are currently processing an incoming sync event
+          if (isSyncingRef.current) return;
+
           // Prevent infinite update feedback loops from socket-initiated player events
           if (expectedStateRef.current !== null) {
             const age = Date.now() - expectedStateRef.current.timestamp;
-            if (age > 1500) {
+            if (age > 3000) {
               expectedStateRef.current = null;
             } else if (state === expectedStateRef.current.state) {
               expectedStateRef.current = null;
@@ -491,14 +510,28 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
             }
           }
 
+          // Rate-limit outgoing emissions (minimum 500ms gap)
+          const now = Date.now();
+          if (now - lastEmitRef.current < 500) return;
+
           const canControl = room.isHost || allowGuestControl;
           if (canControl) {
-            const currentPos = event.target.getCurrentTime() || 0;
-            if (state === 1) {
-              emitSync("video-play", { videoId, currentTime: currentPos });
-            } else if (state === 2) {
-              emitSync("video-pause", { videoId, currentTime: currentPos });
+            // Debounce: clear any pending emission and wait 300ms to avoid rapid fire
+            if (stateChangeTimerRef.current) {
+              clearTimeout(stateChangeTimerRef.current);
             }
+            const currentVideoId = activeVideoIdRef.current;
+            stateChangeTimerRef.current = setTimeout(() => {
+              if (isSyncingRef.current) return; // re-check after delay
+              const currentPos = event.target.getCurrentTime() || 0;
+              lastEmitRef.current = Date.now();
+              if (state === 1) {
+                emitSync("video-play", { videoId: currentVideoId, currentTime: currentPos });
+              } else if (state === 2) {
+                emitSync("video-pause", { videoId: currentVideoId, currentTime: currentPos });
+              }
+              stateChangeTimerRef.current = null;
+            }, 300);
           }
         }
       }
@@ -536,37 +569,43 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     return () => clearInterval(interval);
   }, [activeMode, videoIsPlaying]);
 
-  // YouTube Host heartbeat
+  // YouTube Host heartbeat (sends position every 8s for gentle drift correction on guests)
   useEffect(() => {
     if (room.isHost && activeMode === "youtube" && videoIsPlaying && ytPlayerRef.current && youtubeVideoId) {
       const interval = setInterval(() => {
+        if (isSyncingRef.current) return;
         if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === "function") {
           const currentTime = ytPlayerRef.current.getCurrentTime() || 0;
           emitSync("video-seek", { videoId: youtubeVideoId, currentTime });
         }
-      }, 5000);
+      }, 8000);
       return () => clearInterval(interval);
     }
   }, [room.isHost, activeMode, videoIsPlaying, youtubeVideoId, emitSync]);
 
-  // Guest auto-drift correction
+  // Guest auto-drift correction (gentle: 5s interval, 2s threshold)
   useEffect(() => {
     if (room.isHost || activeMode !== "youtube" || !ytPlayerRef.current) return;
 
     const interval = setInterval(() => {
       if (!lastUpdateRef.current || !lastUpdateRef.current.isPlaying) return;
+      if (isSyncingRef.current) return; // don't correct while syncing
 
       if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === "function") {
         const elapsed = (Date.now() - lastUpdateRef.current.timestamp) / 1000;
         const expectedTime = lastUpdateRef.current.currentTime + elapsed;
         const localTime = ytPlayerRef.current.getCurrentTime() || 0;
 
-        if (Math.abs(localTime - expectedTime) > 0.25) {
-          console.log(`Drift detected: local ${localTime}s vs expected ${expectedTime}s. Re-syncing...`);
+        // Only correct if drift exceeds 2 seconds to avoid unnecessary seeks
+        if (Math.abs(localTime - expectedTime) > 2) {
+          console.log(`Drift detected: local ${localTime.toFixed(1)}s vs expected ${expectedTime.toFixed(1)}s. Re-syncing...`);
+          isSyncingRef.current = true;
+          expectedStateRef.current = { state: 1, timestamp: Date.now() };
           ytPlayerRef.current.seekTo(expectedTime, true);
+          setTimeout(() => { isSyncingRef.current = false; }, 2000);
         }
       }
-    }, 2000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [room.isHost, activeMode]);
