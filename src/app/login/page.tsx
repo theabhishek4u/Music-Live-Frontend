@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { signIn } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
+  const { status } = useSession();
+  const router = useRouter();
   const [isSignUp, setIsSignUp] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -12,6 +15,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace("/dashboard");
+    }
+  }, [status, router]);
 
   useEffect(() => {
     // Check for errors in the URL redirect from NextAuth
@@ -31,6 +40,17 @@ export default function LoginPage() {
       }
     }
   }, []);
+
+  if (status === "loading" || status === "authenticated") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center select-none text-center px-4">
+        <div className="w-16 h-16 rounded-2xl bg-surface-900 border border-white/5 flex items-center justify-center mb-6">
+          <div className="w-8 h-8 border-2 border-primary-500/20 border-t-primary-500 rounded-full animate-spin" />
+        </div>
+        <p className="text-zinc-400 text-sm font-medium animate-pulse">Checking authentication...</p>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

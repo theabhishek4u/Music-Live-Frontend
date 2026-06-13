@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { useSession } from "next-auth/react";
 
 /* ===== ANIMATED BACKGROUND ORB COMPONENT ===== */
 function BackgroundOrbs() {
@@ -85,6 +86,7 @@ function FeatureCard({
 /* ===== NAV BAR ===== */
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
+  const { status } = useSession();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -146,18 +148,29 @@ function Navbar() {
 
         {/* CTA */}
         <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="btn-secondary text-sm py-2.5 px-5 hidden sm:block"
-          >
-            Log In
-          </Link>
-          <Link
-            href="/login"
-            className="btn-primary text-sm py-2.5 px-5 relative z-10"
-          >
-            <span className="relative z-10">Get Started</span>
-          </Link>
+          {status === "authenticated" ? (
+            <Link
+              href="/dashboard"
+              className="btn-primary text-sm py-2.5 px-5 relative z-10"
+            >
+              <span className="relative z-10">Go to Dashboard</span>
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="btn-secondary text-sm py-2.5 px-5 hidden sm:block"
+              >
+                Log In
+              </Link>
+              <Link
+                href="/login"
+                className="btn-primary text-sm py-2.5 px-5 relative z-10"
+              >
+                <span className="relative z-10">Get Started</span>
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </nav>
@@ -166,6 +179,8 @@ function Navbar() {
 
 /* ===== LANDING PAGE ===== */
 export default function LandingPage() {
+  const { status } = useSession();
+
   return (
     <main className="relative">
       <BackgroundOrbs />
@@ -213,7 +228,7 @@ export default function LandingPage() {
             transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link href="/login" passHref legacyBehavior>
+            <Link href={status === "authenticated" ? "/dashboard" : "/login"} passHref legacyBehavior>
               <motion.a
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -232,7 +247,7 @@ export default function LandingPage() {
                   >
                     <polygon points="5 3 19 12 5 21 5 3" />
                   </svg>
-                  Start Listening Free
+                  {status === "authenticated" ? "Go to Dashboard" : "Start Listening Free"}
                 </span>
               </motion.a>
             </Link>
@@ -587,7 +602,7 @@ export default function LandingPage() {
                 together. Create your first room in under 30 seconds.
               </p>
               <Link
-                href="/login"
+                href={status === "authenticated" ? "/dashboard" : "/login"}
                 className="btn-primary text-base py-3.5 px-10 glow-primary relative z-10 inline-flex items-center gap-2"
               >
                 <span className="relative z-10 flex items-center gap-2">
@@ -605,7 +620,7 @@ export default function LandingPage() {
                     <polyline points="10 17 15 12 10 7" />
                     <line x1="15" y1="12" x2="3" y2="12" />
                   </svg>
-                  Get Started — It&apos;s Free
+                  {status === "authenticated" ? "Go to Dashboard" : "Get Started — It's Free"}
                 </span>
               </Link>
             </div>

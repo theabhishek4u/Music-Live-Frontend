@@ -34,7 +34,7 @@ export function useWebRTC(roomId: string, userId: string) {
       console.error("Failed to get local media", err);
       room.setVoiceConnected(false);
     }
-  }, [roomId, room.voiceConnected, room.micMuted]);
+  }, [roomId, room]);
 
   // Clean up WebRTC
   const cleanupWebRTC = useCallback(() => {
@@ -80,16 +80,19 @@ export function useWebRTC(roomId: string, userId: string) {
 
   // Toggle voice connection
   useEffect(() => {
-    if (room.voiceConnected) {
-      initWebRTC();
-    } else {
-      cleanupWebRTC();
-    }
+    Promise.resolve().then(() => {
+      if (room.voiceConnected) {
+        initWebRTC();
+      } else {
+        cleanupWebRTC();
+      }
+    });
     return () => {
       if (!room.voiceConnected) {
         cleanupWebRTC();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.voiceConnected]);
 
   // Socket signaling events
@@ -98,7 +101,7 @@ export function useWebRTC(roomId: string, userId: string) {
     
     const socket = getSocket();
     
-    const createPeer = (targetSocketId: string, initiator: boolean) => {
+    const createPeer = (targetSocketId: string) => {
       const peer = new RTCPeerConnection({
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
@@ -126,9 +129,9 @@ export function useWebRTC(roomId: string, userId: string) {
           
           // Speaking indicator using Web Audio API
           audio.addEventListener("playing", () => {
-             if (!audioContextRef.current) {
-               audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-             }
+              if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+              }
              
              try {
                const source = audioContextRef.current.createMediaStreamSource(event.streams[0]);
@@ -179,7 +182,7 @@ export function useWebRTC(roomId: string, userId: string) {
     const handleVoicePeers = async ({ peerSocketIds }: { peerSocketIds: string[] }) => {
       for (const targetSocketId of peerSocketIds) {
         if (targetSocketId === socket.id) continue;
-        const peer = createPeer(targetSocketId, true);
+        const peer = createPeer(targetSocketId);
         peersRef.current[targetSocketId] = peer;
         
         const offer = await peer.createOffer();
@@ -189,7 +192,7 @@ export function useWebRTC(roomId: string, userId: string) {
     };
 
     const handleOffer = async ({ fromSocketId, offer }: { fromSocketId: string, offer: RTCSessionDescriptionInit }) => {
-      const peer = createPeer(fromSocketId, false);
+      const peer = createPeer(fromSocketId);
       peersRef.current[fromSocketId] = peer;
       
       await peer.setRemoteDescription(new RTCSessionDescription(offer));
@@ -237,6 +240,7 @@ export function useWebRTC(roomId: string, userId: string) {
       socket.off("webrtc:ice-candidate", handleIceCandidate);
       socket.off("webrtc:peer-left", handlePeerLeft);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.voiceConnected, localStream, roomId]);
 
   return { localStream };

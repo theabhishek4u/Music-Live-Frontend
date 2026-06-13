@@ -116,7 +116,6 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   const [inviteCode] = useState(() => Math.random().toString(36).slice(2, 8));
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const lastProgrammaticTimeRef = useRef<number>(0);
 
   // YouTube Watch Party Local State
   const [activeMode, setActiveMode] = useState<"music" | "youtube">("music");
@@ -133,7 +132,9 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   const activeVideoIdRef = useRef<string | null>(null);
   const pendingVideoState = useRef<{ currentTime: number; isPlaying: boolean } | null>(null);
   const lastUpdateRef = useRef<{ currentTime: number; isPlaying: boolean; timestamp: number } | null>(null);
-  const isProgrammaticUpdateRef = useRef(false);
+  const expectedStateRef = useRef<{ state: number; timestamp: number } | null>(null);
+  const isDraggingMusicSeekRef = useRef(false);
+  const isDraggingYtSeekRef = useRef(false);
 
   // Chat/Messaging State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -306,9 +307,11 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         setYoutubeVideoId(state.videoId);
         setYoutubeUrl(`https://www.youtube.com/watch?v=${state.videoId}`);
         if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === "function") {
-          isProgrammaticUpdateRef.current = true;
-          lastProgrammaticTimeRef.current = Date.now();
+          expectedStateRef.current = { state: state.isPlaying ? 1 : 2, timestamp: Date.now() };
           ytPlayerRef.current.loadVideoById(state.videoId);
+          if (!state.isPlaying) {
+            ytPlayerRef.current.pauseVideo();
+          }
         } else {
           pendingVideoState.current = { currentTime: state.currentTime, isPlaying: state.isPlaying };
         }
@@ -329,20 +332,17 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         
         // Sync Play/Pause
         if (state.isPlaying && playerState !== 1) {
-          isProgrammaticUpdateRef.current = true;
-          lastProgrammaticTimeRef.current = Date.now();
+          expectedStateRef.current = { state: 1, timestamp: Date.now() };
           ytPlayerRef.current.playVideo();
         } else if (!state.isPlaying && playerState === 1) {
-          isProgrammaticUpdateRef.current = true;
-          lastProgrammaticTimeRef.current = Date.now();
+          expectedStateRef.current = { state: 2, timestamp: Date.now() };
           ytPlayerRef.current.pauseVideo();
         }
 
         // Sync timeline position (Drift limit: 250ms)
         const localTime = ytPlayerRef.current.getCurrentTime() || 0;
         if (Math.abs(localTime - targetTime) > 0.25) {
-          isProgrammaticUpdateRef.current = true;
-          lastProgrammaticTimeRef.current = Date.now();
+          expectedStateRef.current = { state: state.isPlaying ? 1 : 2, timestamp: Date.now() };
           ytPlayerRef.current.seekTo(targetTime, true);
         }
       } else {
@@ -479,11 +479,16 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           }
 
           // Prevent infinite update feedback loops from socket-initiated player events
-          if (isProgrammaticUpdateRef.current || (Date.now() - lastProgrammaticTimeRef.current < 2000)) {
-            if (state === 1 || state === 2) {
-              isProgrammaticUpdateRef.current = false;
+          if (expectedStateRef.current !== null) {
+            const age = Date.now() - expectedStateRef.current.timestamp;
+            if (age > 1500) {
+              expectedStateRef.current = null;
+            } else if (state === expectedStateRef.current.state) {
+              expectedStateRef.current = null;
+              return;
+            } else {
+              return;
             }
-            return;
           }
 
           const canControl = room.isHost || allowGuestControl;
@@ -523,7 +528,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     let interval: NodeJS.Timeout;
     if (activeMode === "youtube" && videoIsPlaying && ytPlayerRef.current) {
       interval = setInterval(() => {
-        if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === "function") {
+        if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === "function" && !isDraggingYtSeekRef.current) {
           setVideoPosition(ytPlayerRef.current.getCurrentTime() || 0);
         }
       }, 500);
@@ -581,7 +586,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     }
 
     if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === "function") {
-      isProgrammaticUpdateRef.current = true;
+      expectedStateRef.current = { state: 1, timestamp: Date.now() };
       ytPlayerRef.current.loadVideoById(videoId);
     } else {
       setYoutubeVideoId(videoId);
@@ -633,7 +638,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
 
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
-    if (player.isPlaying) {
+    if (player.isPlaying && !isDraggingMusicSeekRef.current) {
       player.setPosition(audioRef.current.currentTime);
     }
   };
@@ -688,9 +693,21 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       audioRef.current.currentTime = pos;
     }
     player.seek(pos);
+  };
+
+  const handleMusicSeekRelease = (pos: number) => {
+    isDraggingMusicSeekRef.current = false;
     if (player.currentTrack) {
       emitSync("seek-update", { songId: player.currentTrack.id, currentTime: pos });
     }
+  };
+
+  const handleYtSeekRelease = (pos: number) => {
+    isDraggingYtSeekRef.current = false;
+    if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === "function") {
+      ytPlayerRef.current.seekTo(pos, true);
+    }
+    emitSync("video-seek", { videoId: youtubeVideoId, currentTime: pos });
   };
 
   const handleAddToQueue = (track: Track) => {
@@ -989,332 +1006,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       </button>
     </div>
 
-    {/* Dynamic Center Panel */}
-    {activeMode === "music" ? (
-      /* Center: Music Player */
-      <div className="flex-1 flex flex-col relative z-10 select-none">
-        <div className="absolute inset-0 opacity-15 blur-[150px] pointer-events-none hidden md:block" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.4), transparent 75%)" }} />
-        
-        <div className="flex-1 flex flex-col items-center justify-center py-4 px-6 relative z-20 pb-24">
-          {/* Rotating Vinyl Record Cover */}
-          <div className={`relative mb-4 transition-all duration-700 ${player.isPlaying ? "scale-105" : "scale-100"}`}>
-            {/* Glow backdrop */}
-            <div className={`absolute -inset-8 bg-orange-500/5 rounded-full blur-3xl opacity-0 transition-opacity duration-1000 hidden md:block ${player.isPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
-            
-            {/* Rotating Vinyl Outer Disk */}
-            <div className={`w-40 h-40 sm:w-48 sm:h-48 md:w-64 md:h-64 lg:w-72 lg:h-72 rounded-full bg-zinc-950 border-[6px] border-zinc-900 shadow-2xl relative flex items-center justify-center transition-transform ${player.isPlaying ? "animate-spin-slow shadow-orange-500/5" : ""}`}>
-              {/* Vinyl Grooves (subtle concentric circles) */}
-              <div className="absolute inset-2 rounded-full border border-white/5 opacity-40 pointer-events-none" />
-              <div className="absolute inset-6 rounded-full border border-white/5 opacity-30 pointer-events-none" />
-              <div className="absolute inset-10 rounded-full border border-white/5 opacity-25 pointer-events-none" />
-              <div className="absolute inset-16 rounded-full border border-white/5 opacity-15 pointer-events-none" />
-              <div className="absolute inset-24 rounded-full border border-white/5 opacity-10 pointer-events-none" />
-              
-              {/* Center Album Art */}
-              <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-full overflow-hidden border-4 border-zinc-950 relative z-10 shrink-0 select-none">
-                <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-full h-full object-cover pointer-events-none" />
-              </div>
-              
-              {/* Vinyl Spindle Center Hole */}
-              <div className="w-4 h-4 rounded-full bg-zinc-950 border border-white/20 absolute z-20 shadow-inner" />
-            </div>
-          </div>
-
-          {/* Track Info */}
-          <div className="text-center mb-4 max-w-md w-full">
-            <h2 className="text-2xl font-extrabold text-white font-display mb-1 tracking-tight truncate">{currentTrack.title}</h2>
-            <p className="text-sm text-[#ff6c37] font-semibold tracking-wide truncate">{currentTrack.artist}</p>
-
-            {/* Animated Equalizer Visualizer */}
-            {player.isPlaying && (
-              <div className="flex items-center justify-center gap-[3px] h-6 mt-4 opacity-80 select-none">
-                <div className="eq-bar" />
-                <div className="eq-bar" style={{ animationDelay: "0.15s" }} />
-                <div className="eq-bar" style={{ animationDelay: "0.3s" }} />
-                <div className="eq-bar" style={{ animationDelay: "0.45s" }} />
-                <div className="eq-bar" style={{ animationDelay: "0.6s" }} />
-              </div>
-            )}
-          </div>
-
-          {/* Seek Bar */}
-          <div className="w-full max-w-lg mb-4 group px-4">
-            <input
-              id="seek-bar"
-              type="range"
-              min={0}
-              max={currentTrack.duration || 100}
-              value={player.position}
-              onChange={(e) => handleSeek(Number(e.target.value))}
-              className="seek-bar animate-fade-in"
-              style={{
-                background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.08) ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.08) 100%)`,
-              }}
-            />
-            <div className="flex justify-between mt-2 text-[10px] text-zinc-500 font-bold font-mono tracking-wider">
-              <span>{formatTime(player.position)}</span>
-              <span>{formatTime(currentTrack.duration)}</span>
-            </div>
-          </div>
-
-          {/* Player controls */}
-          <div className="flex items-center justify-center gap-4 sm:gap-8">
-            <button id="shuffle-btn" onClick={() => player.toggleShuffle()} className={`transition-all hover:scale-110 p-1.5 cursor-pointer ${player.isShuffle ? "text-[#ff6c37]" : "text-zinc-500 hover:text-white"}`}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg>
-            </button>
-            <button id="prev-btn" onClick={handlePrev} className="text-zinc-400 hover:text-white hover:scale-110 active:scale-95 transition-all p-1.5 cursor-pointer">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20L9 12l10-8v16zM5 19V5h2v14H5z" /></svg>
-            </button>
-            
-            <button 
-              id="play-pause-btn" 
-              onClick={handlePlayPause} 
-              className="w-16 h-16 rounded-full bg-[#ff6c37] hover:bg-[#ff571e] text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-orange-500/20 cursor-pointer shrink-0"
-            >
-              {player.isPlaying ? (
-                <Pause size={24} fill="white" strokeWidth={0} />
-              ) : (
-                <Play size={24} fill="white" className="ml-0.5" strokeWidth={0} />
-              )}
-            </button>
-
-            <button id="next-btn" onClick={handleNext} className="text-zinc-400 hover:text-white hover:scale-110 active:scale-95 transition-all p-1.5 cursor-pointer">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8-10 8V4zM17 5h2v14h-2V5z" /></svg>
-            </button>
-            <button id="repeat-btn" onClick={() => player.toggleRepeat()} className={`transition-all hover:scale-110 p-1.5 cursor-pointer ${player.isRepeat ? "text-[#ff6c37]" : "text-zinc-500 hover:text-white"}`}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>
-            </button>
-          </div>
-        </div>
-      </div>
-    ) : (
-      /* Center YouTube Watch Party Player */
-      <div className="flex-1 flex flex-col relative z-10 select-none pb-24 overflow-y-auto scrollbar-hide">
-        <div className="absolute inset-0 opacity-10 blur-[120px] pointer-events-none" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.35), transparent 70%)" }} />
-        
-        {/* Top YouTube URL Input bar */}
-        <div className="w-full max-w-4xl mx-auto mt-4 sm:mt-6 mb-4 px-4 relative z-20">
-          <div className="glass p-2 sm:p-3 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 border border-white/5 shadow-2xl">
-            <input
-              type="text"
-              placeholder={
-                (room.isHost || allowGuestControl)
-                  ? "Paste YouTube link (e.g., watch?v=...)" 
-                  : "Waiting for host to play a video..."
-              }
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              disabled={!(room.isHost || allowGuestControl)}
-              className="flex-1 bg-zinc-900 border border-white/5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ff6c37]/50 focus:ring-1 focus:ring-[#ff6c37]/20 transition-all font-medium disabled:opacity-60"
-            />
-            {(room.isHost || allowGuestControl) && (
-              <button
-                onClick={handleStartWatchParty}
-                className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl text-xs font-bold bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all cursor-pointer border border-[#ff6c37]/25 shrink-0 text-center"
-              >
-                Start Watch Party
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Immersive Video Player Area */}
-        <div className="flex-1 flex flex-col items-center justify-center py-2 px-6 relative z-20">
-          <div className="w-full max-w-4xl aspect-video rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative bg-black/60 group">
-            {/* Visual Glow behind Player */}
-            <div className={`absolute -inset-4 bg-orange-500/5 rounded-3xl blur-2xl opacity-0 transition-opacity duration-1000 ${videoIsPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
-
-            {youtubeVideoId ? (
-              <>
-                <div id="youtube-iframe-player" className="w-full h-full relative z-10" />
-                {/* Transparent click overlay to block direct player clicks for guests */}
-                {!(room.isHost || allowGuestControl) && (
-                  <div className="absolute inset-0 bg-transparent z-20 cursor-default" />
-                )}
-              </>
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-zinc-900/50 backdrop-blur-md select-none z-10">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-950 border border-white/5 flex items-center justify-center text-zinc-500 mb-4 shadow-lg shadow-black/40">
-                  <Youtube size={32} />
-                </div>
-                <h3 className="text-lg font-bold text-white tracking-wide">YouTube Watch Party</h3>
-                <p className="text-xs text-zinc-400 mt-1.5 max-w-sm leading-relaxed">
-                  {room.isHost 
-                    ? "Paste a YouTube link in the input field above and click 'Start Watch Party' to begin synchronization."
-                    : "Waiting for the host to select and start a watch party video."}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Player Metadata & Custom Controls Bar */}
-          {youtubeVideoId && (
-            <div className="w-full max-w-4xl mt-6">
-              {/* Track Info (Title & Channel) */}
-              <div className="text-left mb-4 px-1 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="text-base sm:text-xl font-extrabold text-white font-display mb-0.5 sm:mb-1 tracking-tight truncate max-w-xs sm:max-w-lg md:max-w-2xl">{videoTitle || "Loading YouTube Video..."}</h2>
-                  <p className="text-[11px] sm:text-xs text-[#ff6c37] font-bold tracking-wide truncate">{videoAuthor || "Syncora Watch Party"}</p>
-                </div>
-
-                {/* Control Access Toggle for Host / Indicator for Guest */}
-                {room.isHost ? (
-                  <div className="flex items-center gap-3 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl sm:rounded-2xl bg-zinc-950/60 border border-white/5 shadow-lg shrink-0 select-none self-start sm:self-auto">
-                    <span className="text-[9px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Guest Control</span>
-                    <button
-                      onClick={() => {
-                        const nextVal = !allowGuestControl;
-                        setAllowGuestControl(nextVal);
-                        const socket = getSocket();
-                        if (socket) {
-                          socket.emit("video-toggle-control", { roomId, allowGuestControl: nextVal });
-                        }
-                      }}
-                      className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-300 relative cursor-pointer focus:outline-none ${
-                        allowGuestControl ? "bg-[#ff6c37]" : "bg-zinc-800"
-                      }`}
-                    >
-                      <motion.div
-                        layout
-                        className="w-4 h-4 rounded-full bg-white shadow-md"
-                        animate={{ x: allowGuestControl ? 16 : 0 }}
-                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                      />
-                    </button>
-                  </div>
-                ) : (
-                  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider shrink-0 select-none self-start sm:self-auto ${
-                    allowGuestControl 
-                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/15" 
-                      : "bg-zinc-900/60 text-zinc-500 border-white/5"
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${allowGuestControl ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"}`} />
-                    {allowGuestControl ? "Control Enabled" : "Read Only"}
-                  </div>
-                )}
-              </div>
-
-              {/* Custom Controls Panel */}
-              <div className="glass border border-white/5 p-3 sm:p-4 rounded-2xl flex flex-col gap-2.5 sm:gap-3 shadow-xl">
-                {/* Timeline Seekbar and Time Indicators */}
-                <div className="flex flex-col gap-1.5">
-                  <input
-                    type="range"
-                    min={0}
-                    max={videoDuration || 100}
-                    value={videoPosition}
-                    onChange={(e) => {
-                      if (room.isHost || allowGuestControl) {
-                        const newPos = Number(e.target.value);
-                        setVideoPosition(newPos);
-                        if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === "function") {
-                          ytPlayerRef.current.seekTo(newPos, true);
-                        }
-                        emitSync("video-seek", { videoId: youtubeVideoId, currentTime: newPos });
-                      }
-                    }}
-                    className="seek-bar w-full"
-                    disabled={!(room.isHost || allowGuestControl)}
-                    style={{
-                      background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${(videoPosition / (videoDuration || 1)) * 100}%, rgba(255,255,255,0.08) ${(videoPosition / (videoDuration || 1)) * 100}%, rgba(255,255,255,0.08) 100%)`,
-                    }}
-                  />
-                  <div className="flex justify-between text-[10px] text-zinc-500 font-bold font-mono tracking-wider select-none">
-                    <span>{formatTime(videoPosition)}</span>
-                    <span>{formatTime(videoDuration)}</span>
-                  </div>
-                </div>
-
-                {/* Controls (Play/Pause, Deafen, etc.) */}
-                <div className="flex items-center justify-center pt-1">
-                  <button
-                    onClick={handleYtPlayPause}
-                    disabled={!(room.isHost || allowGuestControl)}
-                    className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-md shrink-0 focus:outline-none ${
-                      (room.isHost || allowGuestControl)
-                        ? "bg-white text-black hover:scale-105 active:scale-95 cursor-pointer" 
-                        : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-                    }`}
-                    title={videoIsPlaying ? "Pause Video" : "Play Video"}
-                  >
-                    {videoIsPlaying ? (
-                      <Pause size={18} fill="currentColor" strokeWidth={0} />
-                    ) : (
-                      <Play size={18} fill="currentColor" className="ml-0.5" strokeWidth={0} />
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-
-    {/* Floating Voice Controls overlays both players */}
-    {roomType !== "SOLO" && (
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 max-w-[90vw]">
-        <div className="flex items-center gap-1.5 sm:gap-2.5 bg-zinc-950/85 backdrop-blur-md border border-white/5 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl shadow-2xl">
-          <button
-            id="mic-toggle-btn"
-            onClick={() => {
-              if (!room.voiceConnected) room.setVoiceConnected(true);
-              room.toggleMic();
-            }}
-            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
-              room.micMuted 
-                ? "bg-red-500/10 text-red-400 border border-red-500/15" 
-                : "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20"
-            }`}
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
-              {room.micMuted ? (
-                <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
-              ) : (
-                <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></>
-              )}
-            </svg>
-            {room.micMuted ? "Muted" : "Mic On"}
-          </button>
-
-          <button
-            id="deafen-toggle-btn"
-            onClick={() => room.toggleDeafen()}
-            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
-              room.isDeafened 
-                ? "bg-red-500/10 text-red-400 border border-red-500/15 animate-pulse" 
-                : "bg-zinc-800 text-zinc-300 border border-white/5 hover:bg-zinc-700"
-            }`}
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
-              {room.isDeafened ? (
-                 <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
-              ) : (
-                 <><path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" /></>
-              )}
-            </svg>
-            {room.isDeafened ? "Deafened" : "Deafen"}
-          </button>
-
-          <button
-            id="voice-toggle-btn"
-            onClick={() => room.setVoiceConnected(!room.voiceConnected)}
-            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
-              room.voiceConnected 
-                ? "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20" 
-                : "bg-zinc-800 text-zinc-400 border border-white/5 hover:bg-zinc-700 hover:text-white"
-            }`}
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
-              <path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
-            </svg>
-            {room.voiceConnected ? "Connected" : "Join"}
-          </button>
-        </div>
-      </div>
-    )}
-
-    {/* Backdrop overlay for mobile drawer */}
+    {/* Backdrop overlay for mobile chat drawer */}
     {showMobileChat && roomType !== "SOLO" && (
       <div 
         className="fixed inset-0 bg-black/55 z-30 md:hidden"
@@ -1322,10 +1014,10 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
       />
     )}
 
-    {/* Right Side: Dynamic Real-time Chat */}
+    {/* Left Side: Dynamic Real-time Chat */}
     {roomType !== "SOLO" && (
-      <aside className={`fixed md:relative inset-y-0 right-0 z-40 md:z-20 w-80 border-l border-white/5 bg-[#0b0c10]/95 md:bg-zinc-950/60 backdrop-blur-md flex flex-col shrink-0 h-full transition-transform duration-300 ${
-        showMobileChat ? "translate-x-0" : "translate-x-full md:translate-x-0"
+      <aside className={`fixed md:relative inset-y-0 left-0 z-40 md:z-20 w-80 border-r border-white/5 bg-[#0b0c10]/95 md:bg-zinc-950/60 backdrop-blur-md flex flex-col shrink-0 h-full transition-transform duration-300 ${
+        showMobileChat ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}>
         {/* Chat Header */}
         <div className="p-5 border-b border-white/5 flex items-center justify-between shrink-0 select-none">
@@ -1502,7 +1194,343 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           </div>
         </div>
       </aside>
-    )}  </div>
+    )}
+
+    {/* Dynamic Center Panel */}
+    {activeMode === "music" ? (
+      /* Center: Music Player */
+      <div className="flex-1 flex flex-col relative z-10 select-none">
+        <div className="absolute inset-0 opacity-15 blur-[150px] pointer-events-none hidden md:block" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.4), transparent 75%)" }} />
+        
+        <div className="flex-1 flex flex-col items-center justify-center py-4 px-6 relative z-20 pb-24">
+          {/* Rotating Vinyl Record Cover */}
+          <div className={`relative mb-4 transition-all duration-700 ${player.isPlaying ? "scale-105" : "scale-100"}`}>
+            {/* Glow backdrop */}
+            <div className={`absolute -inset-8 bg-orange-500/5 rounded-full blur-3xl opacity-0 transition-opacity duration-1000 hidden md:block ${player.isPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
+            
+            {/* Rotating Vinyl Outer Disk */}
+            <div className={`w-40 h-40 sm:w-48 sm:h-48 md:w-64 md:h-64 lg:w-72 lg:h-72 rounded-full bg-zinc-950 border-[6px] border-zinc-900 shadow-2xl relative flex items-center justify-center transition-transform ${player.isPlaying ? "animate-spin-slow shadow-orange-500/5" : ""}`}>
+              {/* Vinyl Grooves (subtle concentric circles) */}
+              <div className="absolute inset-2 rounded-full border border-white/5 opacity-40 pointer-events-none" />
+              <div className="absolute inset-6 rounded-full border border-white/5 opacity-30 pointer-events-none" />
+              <div className="absolute inset-10 rounded-full border border-white/5 opacity-25 pointer-events-none" />
+              <div className="absolute inset-16 rounded-full border border-white/5 opacity-15 pointer-events-none" />
+              <div className="absolute inset-24 rounded-full border border-white/5 opacity-10 pointer-events-none" />
+              
+              {/* Center Album Art */}
+              <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-full overflow-hidden border-4 border-zinc-950 relative z-10 shrink-0 select-none">
+                <img src={currentTrack.thumbnail} alt={currentTrack.title} className="w-full h-full object-cover pointer-events-none" />
+              </div>
+              
+              {/* Vinyl Spindle Center Hole */}
+              <div className="w-4 h-4 rounded-full bg-zinc-950 border border-white/20 absolute z-20 shadow-inner" />
+            </div>
+          </div>
+
+          {/* Track Info */}
+          <div className="text-center mb-4 max-w-md w-full">
+            <h2 className="text-2xl font-extrabold text-white font-display mb-1 tracking-tight truncate">{currentTrack.title}</h2>
+            <p className="text-sm text-[#ff6c37] font-semibold tracking-wide truncate">{currentTrack.artist}</p>
+
+            {/* Animated Equalizer Visualizer */}
+            {player.isPlaying && (
+              <div className="flex items-center justify-center gap-[3px] h-6 mt-4 opacity-80 select-none">
+                <div className="eq-bar" />
+                <div className="eq-bar" style={{ animationDelay: "0.15s" }} />
+                <div className="eq-bar" style={{ animationDelay: "0.3s" }} />
+                <div className="eq-bar" style={{ animationDelay: "0.45s" }} />
+                <div className="eq-bar" style={{ animationDelay: "0.6s" }} />
+              </div>
+            )}
+          </div>
+
+          {/* Seek Bar */}
+          <div className="w-full max-w-lg mb-4 group px-4">
+            <input
+              id="seek-bar"
+              type="range"
+              min={0}
+              max={currentTrack.duration || 100}
+              value={player.position}
+              onChange={(e) => handleSeek(Number(e.target.value))}
+              onMouseDown={() => { isDraggingMusicSeekRef.current = true; }}
+              onTouchStart={() => { isDraggingMusicSeekRef.current = true; }}
+              onMouseUp={(e) => handleMusicSeekRelease(Number(e.currentTarget.value))}
+              onTouchEnd={(e) => handleMusicSeekRelease(Number(e.currentTarget.value))}
+              className="seek-bar animate-fade-in"
+              style={{
+                background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.08) ${(player.position / (currentTrack.duration || 1)) * 100}%, rgba(255,255,255,0.08) 100%)`,
+              }}
+            />
+            <div className="flex justify-between mt-2 text-[10px] text-zinc-500 font-bold font-mono tracking-wider">
+              <span>{formatTime(player.position)}</span>
+              <span>{formatTime(currentTrack.duration)}</span>
+            </div>
+          </div>
+
+          {/* Player controls */}
+          <div className="flex items-center justify-center gap-4 sm:gap-8">
+            <button id="shuffle-btn" onClick={() => player.toggleShuffle()} className={`transition-all hover:scale-110 p-1.5 cursor-pointer ${player.isShuffle ? "text-[#ff6c37]" : "text-zinc-500 hover:text-white"}`}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg>
+            </button>
+            <button id="prev-btn" onClick={handlePrev} className="text-zinc-400 hover:text-white hover:scale-110 active:scale-95 transition-all p-1.5 cursor-pointer">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M19 20L9 12l10-8v16zM5 19V5h2v14H5z" /></svg>
+            </button>
+            
+            <button 
+              id="play-pause-btn" 
+              onClick={handlePlayPause} 
+              className="w-16 h-16 rounded-full bg-[#ff6c37] hover:bg-[#ff571e] text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-orange-500/20 cursor-pointer shrink-0"
+            >
+              {player.isPlaying ? (
+                <Pause size={24} fill="white" strokeWidth={0} />
+              ) : (
+                <Play size={24} fill="white" className="ml-0.5" strokeWidth={0} />
+              )}
+            </button>
+
+            <button id="next-btn" onClick={handleNext} className="text-zinc-400 hover:text-white hover:scale-110 active:scale-95 transition-all p-1.5 cursor-pointer">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4l10 8-10 8V4zM17 5h2v14h-2V5z" /></svg>
+            </button>
+            <button id="repeat-btn" onClick={() => player.toggleRepeat()} className={`transition-all hover:scale-110 p-1.5 cursor-pointer ${player.isRepeat ? "text-[#ff6c37]" : "text-zinc-500 hover:text-white"}`}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : (
+      /* Center YouTube Watch Party Player */
+      <div className="flex-1 flex flex-col relative z-10 select-none pb-24 overflow-y-auto scrollbar-hide">
+        <div className="absolute inset-0 opacity-10 blur-[120px] pointer-events-none" style={{ background: "radial-gradient(circle at center, rgba(255,108,55,0.35), transparent 70%)" }} />
+        
+        {/* Top YouTube URL Input bar */}
+        <div className="w-full max-w-4xl mx-auto mt-4 sm:mt-6 mb-4 px-4 relative z-20">
+          <div className="glass p-2 sm:p-3 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 border border-white/5 shadow-2xl">
+            <input
+              type="text"
+              placeholder={
+                (room.isHost || allowGuestControl)
+                  ? "Paste YouTube link (e.g., watch?v=...)" 
+                  : "Waiting for host to play a video..."
+              }
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              disabled={!(room.isHost || allowGuestControl)}
+              className="flex-1 bg-zinc-900 border border-white/5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#ff6c37]/50 focus:ring-1 focus:ring-[#ff6c37]/20 transition-all font-medium disabled:opacity-60"
+            />
+            {(room.isHost || allowGuestControl) && (
+              <button
+                onClick={handleStartWatchParty}
+                className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl text-xs font-bold bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all cursor-pointer border border-[#ff6c37]/25 shrink-0 text-center"
+              >
+                Start Watch Party
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Immersive Video Player Area */}
+        <div className="flex-1 flex flex-col items-center justify-center py-2 px-6 relative z-20">
+          <div className="w-full max-w-4xl aspect-video rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative bg-black/60 group">
+            {/* Visual Glow behind Player */}
+            <div className={`absolute -inset-4 bg-orange-500/5 rounded-3xl blur-2xl opacity-0 transition-opacity duration-1000 ${videoIsPlaying ? "opacity-100 animate-pulse-glow" : ""}`} />
+
+            {youtubeVideoId ? (
+              <>
+                <div id="youtube-iframe-player" className="w-full h-full relative z-10" />
+                {/* Transparent click overlay to block direct player clicks for guests */}
+                {!(room.isHost || allowGuestControl) && (
+                  <div className="absolute inset-0 bg-transparent z-20 cursor-default" />
+                )}
+              </>
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-zinc-900/50 backdrop-blur-md select-none z-10">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-950 border border-white/5 flex items-center justify-center text-zinc-500 mb-4 shadow-lg shadow-black/40">
+                  <Youtube size={32} />
+                </div>
+                <h3 className="text-lg font-bold text-white tracking-wide">YouTube Watch Party</h3>
+                <p className="text-xs text-zinc-400 mt-1.5 max-w-sm leading-relaxed">
+                  {room.isHost 
+                    ? "Paste a YouTube link in the input field above and click 'Start Watch Party' to begin synchronization."
+                    : "Waiting for the host to select and start a watch party video."}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Player Metadata & Custom Controls Bar */}
+          {youtubeVideoId && (
+            <div className="w-full max-w-4xl mt-6">
+              {/* Track Info (Title & Channel) */}
+              <div className="text-left mb-4 px-1 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-xl font-extrabold text-white font-display mb-0.5 sm:mb-1 tracking-tight truncate max-w-xs sm:max-w-lg md:max-w-2xl">{videoTitle || "Loading YouTube Video..."}</h2>
+                  <p className="text-[11px] sm:text-xs text-[#ff6c37] font-bold tracking-wide truncate">{videoAuthor || "Syncora Watch Party"}</p>
+                </div>
+
+                {/* Control Access Toggle for Host / Indicator for Guest */}
+                {room.isHost ? (
+                  <div className="flex items-center gap-3 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl sm:rounded-2xl bg-zinc-950/60 border border-white/5 shadow-lg shrink-0 select-none self-start sm:self-auto">
+                    <span className="text-[9px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Guest Control</span>
+                    <button
+                      onClick={() => {
+                        const nextVal = !allowGuestControl;
+                        setAllowGuestControl(nextVal);
+                        const socket = getSocket();
+                        if (socket) {
+                          socket.emit("video-toggle-control", { roomId, allowGuestControl: nextVal });
+                        }
+                      }}
+                      className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-300 relative cursor-pointer focus:outline-none ${
+                        allowGuestControl ? "bg-[#ff6c37]" : "bg-zinc-800"
+                      }`}
+                    >
+                      <motion.div
+                        layout
+                        className="w-4 h-4 rounded-full bg-white shadow-md"
+                        animate={{ x: allowGuestControl ? 16 : 0 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      />
+                    </button>
+                  </div>
+                ) : (
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider shrink-0 select-none self-start sm:self-auto ${
+                    allowGuestControl 
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/15" 
+                      : "bg-zinc-900/60 text-zinc-500 border-white/5"
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${allowGuestControl ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"}`} />
+                    {allowGuestControl ? "Control Enabled" : "Read Only"}
+                  </div>
+                )}
+              </div>
+
+              {/* Custom Controls Panel */}
+              <div className="glass border border-white/5 p-3 sm:p-4 rounded-2xl flex flex-col gap-2.5 sm:gap-3 shadow-xl">
+                {/* Timeline Seekbar and Time Indicators */}
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    type="range"
+                    min={0}
+                    max={videoDuration || 100}
+                    value={videoPosition}
+                    onChange={(e) => {
+                      if (room.isHost || allowGuestControl) {
+                        const newPos = Number(e.target.value);
+                        setVideoPosition(newPos);
+                        if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === "function") {
+                          ytPlayerRef.current.seekTo(newPos, false);
+                        }
+                      }
+                    }}
+                    onMouseDown={() => { isDraggingYtSeekRef.current = true; }}
+                    onTouchStart={() => { isDraggingYtSeekRef.current = true; }}
+                    onMouseUp={(e) => handleYtSeekRelease(Number(e.currentTarget.value))}
+                    onTouchEnd={(e) => handleYtSeekRelease(Number(e.currentTarget.value))}
+                    className="seek-bar w-full"
+                    disabled={!(room.isHost || allowGuestControl)}
+                    style={{
+                      background: `linear-gradient(to right, #ff6c37 0%, #ff6c37 ${(videoPosition / (videoDuration || 1)) * 100}%, rgba(255,255,255,0.08) ${(videoPosition / (videoDuration || 1)) * 100}%, rgba(255,255,255,0.08) 100%)`,
+                    }}
+                  />
+                  <div className="flex justify-between text-[10px] text-zinc-500 font-bold font-mono tracking-wider select-none">
+                    <span>{formatTime(videoPosition)}</span>
+                    <span>{formatTime(videoDuration)}</span>
+                  </div>
+                </div>
+
+                {/* Controls (Play/Pause, Deafen, etc.) */}
+                <div className="flex items-center justify-center pt-1">
+                  <button
+                    onClick={handleYtPlayPause}
+                    disabled={!(room.isHost || allowGuestControl)}
+                    className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-md shrink-0 focus:outline-none ${
+                      (room.isHost || allowGuestControl)
+                        ? "bg-white text-black hover:scale-105 active:scale-95 cursor-pointer" 
+                        : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                    }`}
+                    title={videoIsPlaying ? "Pause Video" : "Play Video"}
+                  >
+                    {videoIsPlaying ? (
+                      <Pause size={18} fill="currentColor" strokeWidth={0} />
+                    ) : (
+                      <Play size={18} fill="currentColor" className="ml-0.5" strokeWidth={0} />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    {/* Floating Voice Controls overlays both players */}
+    {roomType !== "SOLO" && (
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 max-w-[90vw]">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 bg-zinc-950/85 backdrop-blur-md border border-white/5 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl shadow-2xl">
+          <button
+            id="mic-toggle-btn"
+            onClick={() => {
+              if (!room.voiceConnected) room.setVoiceConnected(true);
+              room.toggleMic();
+            }}
+            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
+              room.micMuted 
+                ? "bg-red-500/10 text-red-400 border border-red-500/15" 
+                : "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20"
+            }`}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
+              {room.micMuted ? (
+                <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
+              ) : (
+                <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></>
+              )}
+            </svg>
+            {room.micMuted ? "Muted" : "Mic On"}
+          </button>
+
+          <button
+            id="deafen-toggle-btn"
+            onClick={() => room.toggleDeafen()}
+            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
+              room.isDeafened 
+                ? "bg-red-500/10 text-red-400 border border-red-500/15 animate-pulse" 
+                : "bg-zinc-800 text-zinc-300 border border-white/5 hover:bg-zinc-700"
+            }`}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
+              {room.isDeafened ? (
+                 <><line x1="1" y1="1" x2="23" y2="23" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" /><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.49-.34 2.18" /></>
+              ) : (
+                 <><path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" /></>
+              )}
+            </svg>
+            {room.isDeafened ? "Deafened" : "Deafen"}
+          </button>
+
+          <button
+            id="voice-toggle-btn"
+            onClick={() => room.setVoiceConnected(!room.voiceConnected)}
+            className={`flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-bold transition-all cursor-pointer ${
+              room.voiceConnected 
+                ? "bg-[#ff6c37]/10 text-[#ff6c37] border border-[#ff6c37]/15 hover:bg-[#ff6c37]/20" 
+                : "bg-zinc-800 text-zinc-400 border border-white/5 hover:bg-zinc-700 hover:text-white"
+            }`}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="sm:w-3 sm:h-3">
+              <path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+            </svg>
+            {room.voiceConnected ? "Connected" : "Join"}
+          </button>
+        </div>
+      </div>
+    )}
+
+
+
+    </div>
 
       {/* Invite Modal */}
       {showInviteModal && (
