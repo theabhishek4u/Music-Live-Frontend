@@ -135,7 +135,7 @@ export default async function HistoryPage() {
                               className="inline-block h-6 w-6 rounded-full ring-2 ring-[#121216] object-cover border border-white/10"
                             />
                           ) : (
-                            <div className="inline-block h-6 w-6 rounded-full bg-zinc-850 ring-2 ring-[#121216] flex items-center justify-center text-white text-[9px] font-bold border border-white/10">
+                            <div className="flex h-6 w-6 rounded-full bg-zinc-850 ring-2 ring-[#121216] items-center justify-center text-white text-[9px] font-bold border border-white/10">
                               {(p.user.name || "U").charAt(0).toUpperCase()}
                             </div>
                           )}
