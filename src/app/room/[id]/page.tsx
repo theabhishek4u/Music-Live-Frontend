@@ -115,6 +115,8 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   const [showSearch, setShowSearch] = useState(false);
   const [inviteCode] = useState(() => Math.random().toString(36).slice(2, 8));
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const lastProgrammaticTimeRef = useRef<number>(0);
 
   // YouTube Watch Party Local State
   const [activeMode, setActiveMode] = useState<"music" | "youtube">("music");
@@ -155,6 +157,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
   useEffect(() => {
     if (player.queue.length === 0) {
       player.setQueue(demoTracks, 0);
+      player.pause(); // Prevent autoplay on initial join
     }
   }, []);
 
@@ -304,6 +307,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         setYoutubeUrl(`https://www.youtube.com/watch?v=${state.videoId}`);
         if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === "function") {
           isProgrammaticUpdateRef.current = true;
+          lastProgrammaticTimeRef.current = Date.now();
           ytPlayerRef.current.loadVideoById(state.videoId);
         } else {
           pendingVideoState.current = { currentTime: state.currentTime, isPlaying: state.isPlaying };
@@ -326,9 +330,11 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         // Sync Play/Pause
         if (state.isPlaying && playerState !== 1) {
           isProgrammaticUpdateRef.current = true;
+          lastProgrammaticTimeRef.current = Date.now();
           ytPlayerRef.current.playVideo();
         } else if (!state.isPlaying && playerState === 1) {
           isProgrammaticUpdateRef.current = true;
+          lastProgrammaticTimeRef.current = Date.now();
           ytPlayerRef.current.pauseVideo();
         }
 
@@ -336,6 +342,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         const localTime = ytPlayerRef.current.getCurrentTime() || 0;
         if (Math.abs(localTime - targetTime) > 0.25) {
           isProgrammaticUpdateRef.current = true;
+          lastProgrammaticTimeRef.current = Date.now();
           ytPlayerRef.current.seekTo(targetTime, true);
         }
       } else {
@@ -472,7 +479,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
           }
 
           // Prevent infinite update feedback loops from socket-initiated player events
-          if (isProgrammaticUpdateRef.current) {
+          if (isProgrammaticUpdateRef.current || (Date.now() - lastProgrammaticTimeRef.current < 2000)) {
             if (state === 1 || state === 2) {
               isProgrammaticUpdateRef.current = false;
             }
@@ -692,8 +699,14 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
     setShowSearch(false);
   };
 
+  const getInviteLink = () => {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/room/${roomId}?name=${encodeURIComponent(roomName)}&type=${roomType}`;
+  };
+
   const copyInviteCode = () => {
-    const inviteLink = `${window.location.origin}/room/${roomId}?name=${encodeURIComponent(roomName)}&type=${roomType}`;
+    const inviteLink = getInviteLink();
+    if (!inviteLink) return;
     navigator.clipboard.writeText(inviteLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -881,7 +894,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
                   return (
                     <button 
                       key={`empty-${index}`}
-                      onClick={copyInviteCode}
+                      onClick={() => setShowInviteModal(true)}
                       className="w-8 h-8 rounded-full border border-dashed border-white/20 hover:border-[#ff6c37]/50 hover:bg-[#ff6c37]/5 flex items-center justify-center text-zinc-500 hover:text-[#ff6c37] transition-all cursor-pointer"
                       title="Invite Friend"
                     >
@@ -914,7 +927,7 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
               </button>
               <button 
                 className="py-2 px-3 sm:py-2.5 sm:px-4 rounded-xl text-[10px] sm:text-xs font-extrabold flex items-center gap-1.5 sm:gap-2 bg-linear-to-r from-[#ff6c37] to-[#ff571e] text-white hover:brightness-110 active:scale-95 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 transition-all duration-300 cursor-pointer border border-[#ff6c37]/25"
-                onClick={copyInviteCode}
+                onClick={() => setShowInviteModal(true)}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
                 Invite
@@ -1490,6 +1503,56 @@ export default function RoomPage({ params }: { params: Promise<{ id: string }> }
         </div>
       </aside>
     )}  </div>
+
+      {/* Invite Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/85 backdrop-blur-md transition-opacity cursor-pointer" 
+            onClick={() => setShowInviteModal(false)} 
+          />
+          {/* Card */}
+          <div className="bg-[#121216] border border-white/10 p-6 sm:p-8 w-full max-w-sm relative z-10 rounded-3xl shadow-2xl mx-4 text-center select-none animate-slide-up">
+            <h2 className="text-xl sm:text-2xl font-bold font-display text-white mb-2">Invite Friends</h2>
+            <p className="text-xs text-zinc-400 mb-6 leading-relaxed">Scan the QR code or share the link below to let others join your watch party.</p>
+            
+            {/* QR Code Container */}
+            <div className="bg-white p-3 rounded-2xl w-[174px] h-[174px] mx-auto mb-6 flex items-center justify-center shadow-inner relative overflow-hidden">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&color=070709&data=${encodeURIComponent(getInviteLink())}`}
+                alt="Room QR Code"
+                className="w-[150px] h-[150px] object-contain select-none pointer-events-none"
+              />
+            </div>
+            
+            {/* Invite Link input & copy */}
+            <div className="flex items-center bg-zinc-900 border border-white/5 p-1 rounded-xl mb-6 select-all">
+              <input 
+                type="text" 
+                readOnly
+                value={getInviteLink()}
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+                className="flex-1 bg-transparent px-3 py-2 text-xs text-zinc-300 select-all focus:outline-none truncate font-medium"
+              />
+              <button 
+                onClick={copyInviteCode}
+                className="px-4 py-2 bg-[#ff6c37] hover:bg-[#ff571e] active:scale-95 text-white text-[11px] font-extrabold rounded-lg transition-all cursor-pointer shrink-0"
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            
+            {/* Close Button */}
+            <button 
+              onClick={() => setShowInviteModal(false)} 
+              className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 active:scale-98 text-zinc-300 hover:text-white font-bold rounded-xl text-xs transition-all cursor-pointer border border-white/5"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Vignette Effect */}
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-48 bg-linear-to-t from-[#ff6c37]/15 via-purple-600/5 to-transparent z-0" />
